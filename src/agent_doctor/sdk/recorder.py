@@ -7,12 +7,11 @@ calls (a tool that calls an LLM) are linked correctly, including under asyncio.
 from __future__ import annotations
 
 import threading
-import time
 from contextvars import ContextVar, Token
 from typing import Any
 
 from agent_doctor import config
-from agent_doctor._util import new_id, now_ms, to_jsonable, warn_once
+from agent_doctor._util import get_clock, new_id, now_ms, to_jsonable, warn_once
 from agent_doctor.schema import Run, Span, SpanKind, SpanStatus
 from agent_doctor.store import TraceStore, get_default_store
 
@@ -31,11 +30,12 @@ def current_parent_id() -> str | None:
 
 class Timer:
     def __init__(self) -> None:
+        self._clock = get_clock()
         self.start_ms = now_ms()
-        self._t0 = time.perf_counter()
+        self._t0 = self._clock.perf()
 
     def elapsed_ms(self) -> int:
-        return int((time.perf_counter() - self._t0) * 1000)
+        return int(round((self._clock.perf() - self._t0) * 1000))
 
     def end_ms(self) -> int:
         return self.start_ms + self.elapsed_ms()

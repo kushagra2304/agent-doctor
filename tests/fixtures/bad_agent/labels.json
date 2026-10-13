@@ -1,0 +1,743 @@
+{
+  "generator": "python -m examples.bad_agent.generate",
+  "seed": 7,
+  "note": "Answer key for analyzer tests. 'planted' lists every problem put into a run and the spans that prove it. Analyzers must never read this file.",
+  "runs": {
+    "run_f5ff61d7b533": {
+      "scenario": "clean-order-1",
+      "description": "No planted problems.",
+      "faults": [],
+      "clean": true,
+      "expected_output": "Order 1234 has shipped and should arrive on Friday.",
+      "answer_correct": true,
+      "planted": []
+    },
+    "run_1393ac80e69a": {
+      "scenario": "clean-order-2",
+      "description": "No planted problems.",
+      "faults": [],
+      "clean": true,
+      "expected_output": "Order 5678 has shipped and should arrive on Monday.",
+      "answer_correct": true,
+      "planted": []
+    },
+    "run_40f0cb232767": {
+      "scenario": "clean-refund-1",
+      "description": "No planted problems.",
+      "faults": [],
+      "clean": true,
+      "expected_output": "You can get a full refund within 30 days of delivery.",
+      "answer_correct": true,
+      "planted": []
+    },
+    "run_70b440c153af": {
+      "scenario": "clean-refund-2",
+      "description": "No planted problems.",
+      "faults": [],
+      "clean": true,
+      "expected_output": "You can get a full refund within 30 days of delivery.",
+      "answer_correct": true,
+      "planted": []
+    },
+    "run_3a07a1a91ceb": {
+      "scenario": "clean-stock-1",
+      "description": "No planted problems.",
+      "faults": [],
+      "clean": true,
+      "expected_output": "Yes, 12 in stock.",
+      "answer_correct": true,
+      "planted": []
+    },
+    "run_a2dead289e12": {
+      "scenario": "clean-stock-2",
+      "description": "No planted problems.",
+      "faults": [],
+      "clean": true,
+      "expected_output": "Yes, 3 in stock.",
+      "answer_correct": true,
+      "planted": []
+    },
+    "run_6fb44d7d504d": {
+      "scenario": "duplicate-lookup-1",
+      "description": "Looks the order up twice with the same arguments.",
+      "faults": [
+        "duplicate_lookup"
+      ],
+      "clean": false,
+      "expected_output": "Order 1234 has shipped and should arrive on Friday.",
+      "answer_correct": true,
+      "planted": [
+        {
+          "type": "redundant_tool_call",
+          "kind": "exact_duplicate_tool_call",
+          "detail": "search_orders called twice with order_id=1234",
+          "evidence_span_ids": [
+            "sp_115a0c656d48",
+            "sp_2394e1d3a03e"
+          ]
+        }
+      ]
+    },
+    "run_cc3a0aa92323": {
+      "scenario": "duplicate-lookup-2",
+      "description": "Looks the order up twice with the same arguments.",
+      "faults": [
+        "duplicate_lookup"
+      ],
+      "clean": false,
+      "expected_output": "Order 5678 has shipped and should arrive on Monday.",
+      "answer_correct": true,
+      "planted": [
+        {
+          "type": "redundant_tool_call",
+          "kind": "exact_duplicate_tool_call",
+          "detail": "search_orders called twice with order_id=5678",
+          "evidence_span_ids": [
+            "sp_456deb8c7104",
+            "sp_b80a12c3fe68"
+          ]
+        }
+      ]
+    },
+    "run_79b6d9617915": {
+      "scenario": "tracking-retry-loop-1",
+      "description": "Tracking fails three times and is retried immediately, then works.",
+      "faults": [
+        "tracking_failures"
+      ],
+      "clean": false,
+      "expected_output": "Order 1234 has shipped and should arrive on Friday.",
+      "answer_correct": true,
+      "planted": [
+        {
+          "type": "retry_loop",
+          "kind": "tool_retry_loop",
+          "detail": "get_tracking retried 3 times with no backoff",
+          "evidence_span_ids": [
+            "sp_d195b583e749",
+            "sp_7127962989dc",
+            "sp_3fda4cefb337",
+            "sp_b645cc0d63df"
+          ]
+        }
+      ]
+    },
+    "run_046cdcc7fe69": {
+      "scenario": "tracking-retry-loop-2",
+      "description": "Tracking fails three times and is retried immediately, then works.",
+      "faults": [
+        "tracking_failures"
+      ],
+      "clean": false,
+      "expected_output": "Order 5678 has shipped and should arrive on Monday.",
+      "answer_correct": true,
+      "planted": [
+        {
+          "type": "retry_loop",
+          "kind": "tool_retry_loop",
+          "detail": "get_tracking retried 3 times with no backoff",
+          "evidence_span_ids": [
+            "sp_efb566d66e67",
+            "sp_02ae7525682c",
+            "sp_f5b962aba6cb",
+            "sp_2f1718ab1e5c"
+          ]
+        }
+      ]
+    },
+    "run_c355470ee120": {
+      "scenario": "tracking-down-1",
+      "description": "Tracking never works; the agent retries, then answers with a guess.",
+      "faults": [
+        "tracking_down"
+      ],
+      "clean": false,
+      "expected_output": "Order 1234 has shipped and should arrive on Friday.",
+      "answer_correct": false,
+      "planted": [
+        {
+          "type": "retry_loop",
+          "kind": "tool_retry_loop",
+          "detail": "get_tracking retried 3 times with no backoff, and never succeeded",
+          "evidence_span_ids": [
+            "sp_3b56e335cd94",
+            "sp_0e5c3e6fcacb",
+            "sp_053c0f7b1d50",
+            "sp_6286ece42363"
+          ]
+        },
+        {
+          "type": "error",
+          "kind": "swallowed_tool_failure",
+          "detail": "every get_tracking call failed, yet the agent answered with a guessed date",
+          "evidence_span_ids": [
+            "sp_3b56e335cd94",
+            "sp_0e5c3e6fcacb",
+            "sp_053c0f7b1d50",
+            "sp_6286ece42363",
+            "sp_506cf35bcf9d"
+          ]
+        }
+      ]
+    },
+    "run_7ba191068381": {
+      "scenario": "tracking-down-2",
+      "description": "Tracking never works; the agent retries, then answers with a guess.",
+      "faults": [
+        "tracking_down"
+      ],
+      "clean": false,
+      "expected_output": "Order 5678 has shipped and should arrive on Monday.",
+      "answer_correct": false,
+      "planted": [
+        {
+          "type": "retry_loop",
+          "kind": "tool_retry_loop",
+          "detail": "get_tracking retried 3 times with no backoff, and never succeeded",
+          "evidence_span_ids": [
+            "sp_2230379d40f3",
+            "sp_a1960b9e7c27",
+            "sp_63a2fe417aa5",
+            "sp_0418e63bc7d7"
+          ]
+        },
+        {
+          "type": "error",
+          "kind": "swallowed_tool_failure",
+          "detail": "every get_tracking call failed, yet the agent answered with a guessed date",
+          "evidence_span_ids": [
+            "sp_2230379d40f3",
+            "sp_a1960b9e7c27",
+            "sp_63a2fe417aa5",
+            "sp_0418e63bc7d7",
+            "sp_db1c908ef348"
+          ]
+        }
+      ]
+    },
+    "run_1aad2ceb856d": {
+      "scenario": "context-bloat-1",
+      "description": "Sends the whole history, raw tool JSON included, on every call.",
+      "faults": [
+        "context_bloat"
+      ],
+      "clean": false,
+      "expected_output": "Order 1234 has shipped and should arrive on Friday.",
+      "answer_correct": true,
+      "planted": [
+        {
+          "type": "context_bloat",
+          "kind": "context_bloat",
+          "detail": "full history with raw tool JSON is re-sent on every LLM call",
+          "evidence_span_ids": [
+            "sp_bf3b1eadd784",
+            "sp_d924da13b4d7",
+            "sp_67a2d0b4b6ab"
+          ]
+        }
+      ]
+    },
+    "run_61077be7418e": {
+      "scenario": "context-bloat-2",
+      "description": "Sends the whole history, raw tool JSON included, on every call.",
+      "faults": [
+        "context_bloat"
+      ],
+      "clean": false,
+      "expected_output": "Order 5678 has shipped and should arrive on Monday.",
+      "answer_correct": true,
+      "planted": [
+        {
+          "type": "context_bloat",
+          "kind": "context_bloat",
+          "detail": "full history with raw tool JSON is re-sent on every LLM call",
+          "evidence_span_ids": [
+            "sp_1a77ae860293",
+            "sp_a6bf45f22d5d",
+            "sp_e1fdd3f82113"
+          ]
+        }
+      ]
+    },
+    "run_cf5110db1116": {
+      "scenario": "near-duplicate-search-1",
+      "description": "Runs the same knowledge-base search twice in different words.",
+      "faults": [
+        "near_duplicate_search"
+      ],
+      "clean": false,
+      "expected_output": "You can get a full refund within 30 days of delivery.",
+      "answer_correct": true,
+      "planted": [
+        {
+          "type": "redundant_tool_call",
+          "kind": "near_duplicate_tool_call",
+          "detail": "search_kb called twice with reworded queries that return the same article",
+          "evidence_span_ids": [
+            "sp_9967a5ed6721",
+            "sp_5090b6882e66"
+          ]
+        }
+      ]
+    },
+    "run_091607797b1c": {
+      "scenario": "near-duplicate-search-2",
+      "description": "Runs the same knowledge-base search twice in different words.",
+      "faults": [
+        "near_duplicate_search"
+      ],
+      "clean": false,
+      "expected_output": "You can get a full refund within 30 days of delivery.",
+      "answer_correct": true,
+      "planted": [
+        {
+          "type": "redundant_tool_call",
+          "kind": "near_duplicate_tool_call",
+          "detail": "search_kb called twice with reworded queries that return the same article",
+          "evidence_span_ids": [
+            "sp_50b2e11a1c39",
+            "sp_b5dc5f1fd8d3"
+          ]
+        }
+      ]
+    },
+    "run_d913532acbe4": {
+      "scenario": "unused-tool-1",
+      "description": "Fetches the customer profile and never uses it.",
+      "faults": [
+        "unused_tool"
+      ],
+      "clean": false,
+      "expected_output": "You can get a full refund within 30 days of delivery.",
+      "answer_correct": true,
+      "planted": [
+        {
+          "type": "unused_tool_output",
+          "kind": "unused_tool_output",
+          "detail": "get_customer's result never reaches any later LLM call",
+          "evidence_span_ids": [
+            "sp_5f3429ff935c"
+          ]
+        }
+      ]
+    },
+    "run_c15c9481c608": {
+      "scenario": "unused-tool-2",
+      "description": "Fetches the customer profile and never uses it.",
+      "faults": [
+        "unused_tool"
+      ],
+      "clean": false,
+      "expected_output": "You can get a full refund within 30 days of delivery.",
+      "answer_correct": true,
+      "planted": [
+        {
+          "type": "unused_tool_output",
+          "kind": "unused_tool_output",
+          "detail": "get_customer's result never reaches any later LLM call",
+          "evidence_span_ids": [
+            "sp_ad9e0e5a042d"
+          ]
+        }
+      ]
+    },
+    "run_e9cab0b07b91": {
+      "scenario": "sequential-lookups-1",
+      "description": "Runs three independent lookups one after another instead of in parallel.",
+      "faults": [
+        "sequential_independent"
+      ],
+      "clean": false,
+      "expected_output": "You can get a full refund within 30 days of delivery.",
+      "answer_correct": true,
+      "planted": [
+        {
+          "type": "parallelizable_calls",
+          "kind": "sequential_independent_calls",
+          "detail": "get_customer, get_promotions and search_kb do not depend on each other but run one after another",
+          "evidence_span_ids": [
+            "sp_ea84cebf3462",
+            "sp_3a6f63ddb265",
+            "sp_8dab0c35cd2a"
+          ]
+        }
+      ]
+    },
+    "run_02346b1e9790": {
+      "scenario": "sequential-lookups-2",
+      "description": "Runs three independent lookups one after another instead of in parallel.",
+      "faults": [
+        "sequential_independent"
+      ],
+      "clean": false,
+      "expected_output": "You can get a full refund within 30 days of delivery.",
+      "answer_correct": true,
+      "planted": [
+        {
+          "type": "parallelizable_calls",
+          "kind": "sequential_independent_calls",
+          "detail": "get_customer, get_promotions and search_kb do not depend on each other but run one after another",
+          "evidence_span_ids": [
+            "sp_461e4e62f94b",
+            "sp_8447a41bab43",
+            "sp_c269b310d594"
+          ]
+        }
+      ]
+    },
+    "run_66b463a71a9a": {
+      "scenario": "search-loop-1",
+      "description": "A prompt line makes the agent re-search the same article three times.",
+      "faults": [
+        "search_loop"
+      ],
+      "clean": false,
+      "expected_output": "You can get a full refund within 30 days of delivery.",
+      "answer_correct": true,
+      "planted": [
+        {
+          "type": "retry_loop",
+          "kind": "no_progress_loop",
+          "detail": "the agent searched and re-read the same article 3 times with no new facts",
+          "evidence_span_ids": [
+            "sp_d49b83846795",
+            "sp_ee7fcdc1aa51",
+            "sp_3144e045c72b",
+            "sp_8cf32e881828",
+            "sp_b316d3052c6c",
+            "sp_8c8a70ec32a7",
+            "sp_3f1d92963a29",
+            "sp_2546e19c7000",
+            "sp_6f954a0891aa",
+            "sp_21244a468410"
+          ]
+        }
+      ]
+    },
+    "run_41e1ef53f99e": {
+      "scenario": "search-loop-2",
+      "description": "A prompt line makes the agent re-search the same article three times.",
+      "faults": [
+        "search_loop"
+      ],
+      "clean": false,
+      "expected_output": "You can get a full refund within 30 days of delivery.",
+      "answer_correct": true,
+      "planted": [
+        {
+          "type": "retry_loop",
+          "kind": "no_progress_loop",
+          "detail": "the agent searched and re-read the same article 3 times with no new facts",
+          "evidence_span_ids": [
+            "sp_bd41f7ce8dab",
+            "sp_b40c3b8e3be4",
+            "sp_3f7e47d7aa54",
+            "sp_fd2b6acc445d",
+            "sp_2e8a31a13fa1",
+            "sp_c11f850f484c",
+            "sp_bf20bcc2ee6c",
+            "sp_e9f66ce7f5d5",
+            "sp_36ddbe9acd0e",
+            "sp_7a506cd31e64"
+          ]
+        }
+      ]
+    },
+    "run_763042929f4e": {
+      "scenario": "slow-inventory-1",
+      "description": "The inventory check takes 4.5 seconds.",
+      "faults": [
+        "slow_inventory"
+      ],
+      "clean": false,
+      "expected_output": "Yes, 12 in stock.",
+      "answer_correct": true,
+      "planted": [
+        {
+          "type": "latency",
+          "kind": "slow_tool",
+          "detail": "check_inventory takes 4.5 s, over half of the run",
+          "evidence_span_ids": [
+            "sp_764ebc091145"
+          ]
+        }
+      ]
+    },
+    "run_db130127c7b4": {
+      "scenario": "slow-inventory-2",
+      "description": "The inventory check takes 4.5 seconds.",
+      "faults": [
+        "slow_inventory"
+      ],
+      "clean": false,
+      "expected_output": "Yes, 3 in stock.",
+      "answer_correct": true,
+      "planted": [
+        {
+          "type": "latency",
+          "kind": "slow_tool",
+          "detail": "check_inventory takes 4.5 s, over half of the run",
+          "evidence_span_ids": [
+            "sp_facf598651d6"
+          ]
+        }
+      ]
+    },
+    "run_bc98c50b4acd": {
+      "scenario": "big-model-routing-1",
+      "description": "Uses the large model for a one-word routing decision.",
+      "faults": [
+        "big_model_routing"
+      ],
+      "clean": false,
+      "expected_output": "Yes, 12 in stock.",
+      "answer_correct": true,
+      "planted": [
+        {
+          "type": "cost",
+          "kind": "expensive_model_for_simple_step",
+          "detail": "the large model (demo-large) is used for a one-word routing decision",
+          "evidence_span_ids": [
+            "sp_ded16fd05f65"
+          ]
+        }
+      ]
+    },
+    "run_1f6b63acc278": {
+      "scenario": "big-model-routing-2",
+      "description": "Uses the large model for a one-word routing decision.",
+      "faults": [
+        "big_model_routing"
+      ],
+      "clean": false,
+      "expected_output": "Yes, 3 in stock.",
+      "answer_correct": true,
+      "planted": [
+        {
+          "type": "cost",
+          "kind": "expensive_model_for_simple_step",
+          "detail": "the large model (demo-large) is used for a one-word routing decision",
+          "evidence_span_ids": [
+            "sp_3e44943f82c5"
+          ]
+        }
+      ]
+    },
+    "run_b2d343ab8e0f": {
+      "scenario": "no-prompt-cache-1",
+      "description": "A timestamp at the top of the system prompt breaks prompt caching.",
+      "faults": [
+        "no_prompt_cache"
+      ],
+      "clean": false,
+      "expected_output": "Order 1234 has shipped and should arrive on Friday.",
+      "answer_correct": true,
+      "planted": [
+        {
+          "type": "cost",
+          "kind": "prompt_cache_miss",
+          "detail": "a timestamp at the start of the system prompt prevents prompt caching",
+          "evidence_span_ids": [
+            "sp_a7d18eca716c",
+            "sp_97f54a098377",
+            "sp_0220a6a2cd41"
+          ]
+        }
+      ]
+    },
+    "run_62a0028d434d": {
+      "scenario": "no-prompt-cache-2",
+      "description": "A timestamp at the top of the system prompt breaks prompt caching.",
+      "faults": [
+        "no_prompt_cache"
+      ],
+      "clean": false,
+      "expected_output": "Order 5678 has shipped and should arrive on Monday.",
+      "answer_correct": true,
+      "planted": [
+        {
+          "type": "cost",
+          "kind": "prompt_cache_miss",
+          "detail": "a timestamp at the start of the system prompt prevents prompt caching",
+          "evidence_span_ids": [
+            "sp_8a3aa8d9105c",
+            "sp_746d5a1ac48f",
+            "sp_6d4d47326e69"
+          ]
+        }
+      ]
+    },
+    "run_7d6bd246eed4": {
+      "scenario": "llm-rate-limit-1",
+      "description": "The first three LLM calls hit rate limits and are retried with no backoff.",
+      "faults": [
+        "llm_rate_limit"
+      ],
+      "clean": false,
+      "expected_output": "Yes, 12 in stock.",
+      "answer_correct": true,
+      "planted": [
+        {
+          "type": "retry_loop",
+          "kind": "llm_retry_without_backoff",
+          "detail": "3 rate-limited LLM calls retried immediately with no backoff",
+          "evidence_span_ids": [
+            "sp_b2e47fc30f25",
+            "sp_ec2bb48c497f",
+            "sp_f79fa8672623",
+            "sp_8eabb077d203"
+          ]
+        }
+      ]
+    },
+    "run_87d88f90cb86": {
+      "scenario": "llm-rate-limit-2",
+      "description": "The first three LLM calls hit rate limits and are retried with no backoff.",
+      "faults": [
+        "llm_rate_limit"
+      ],
+      "clean": false,
+      "expected_output": "Yes, 3 in stock.",
+      "answer_correct": true,
+      "planted": [
+        {
+          "type": "retry_loop",
+          "kind": "llm_retry_without_backoff",
+          "detail": "3 rate-limited LLM calls retried immediately with no backoff",
+          "evidence_span_ids": [
+            "sp_d8043ad8f4b4",
+            "sp_ed48f73b00cc",
+            "sp_44e8dbacb4f8",
+            "sp_c27c530687ab"
+          ]
+        }
+      ]
+    },
+    "run_042c86d65f25": {
+      "scenario": "everything-wrong-1",
+      "description": "Several problems at once.",
+      "faults": [
+        "duplicate_lookup",
+        "tracking_failures",
+        "context_bloat",
+        "big_model_routing",
+        "no_prompt_cache"
+      ],
+      "clean": false,
+      "expected_output": "Order 1234 has shipped and should arrive on Friday.",
+      "answer_correct": true,
+      "planted": [
+        {
+          "type": "cost",
+          "kind": "expensive_model_for_simple_step",
+          "detail": "the large model (demo-large) is used for a one-word routing decision",
+          "evidence_span_ids": [
+            "sp_07144dca0feb"
+          ]
+        },
+        {
+          "type": "redundant_tool_call",
+          "kind": "exact_duplicate_tool_call",
+          "detail": "search_orders called twice with order_id=1234",
+          "evidence_span_ids": [
+            "sp_8e634751faed",
+            "sp_35d3cce4a84d"
+          ]
+        },
+        {
+          "type": "retry_loop",
+          "kind": "tool_retry_loop",
+          "detail": "get_tracking retried 2 times with no backoff",
+          "evidence_span_ids": [
+            "sp_9184db99deb3",
+            "sp_78feadabc049",
+            "sp_a62fc9189a64"
+          ]
+        },
+        {
+          "type": "context_bloat",
+          "kind": "context_bloat",
+          "detail": "full history with raw tool JSON is re-sent on every LLM call",
+          "evidence_span_ids": [
+            "sp_07144dca0feb",
+            "sp_8c10034c65d1",
+            "sp_19343e2b50da"
+          ]
+        },
+        {
+          "type": "cost",
+          "kind": "prompt_cache_miss",
+          "detail": "a timestamp at the start of the system prompt prevents prompt caching",
+          "evidence_span_ids": [
+            "sp_07144dca0feb",
+            "sp_8c10034c65d1",
+            "sp_19343e2b50da"
+          ]
+        }
+      ]
+    },
+    "run_dc3352eba323": {
+      "scenario": "everything-wrong-2",
+      "description": "Several problems at once.",
+      "faults": [
+        "duplicate_lookup",
+        "tracking_failures",
+        "context_bloat",
+        "big_model_routing",
+        "no_prompt_cache"
+      ],
+      "clean": false,
+      "expected_output": "Order 5678 has shipped and should arrive on Monday.",
+      "answer_correct": true,
+      "planted": [
+        {
+          "type": "cost",
+          "kind": "expensive_model_for_simple_step",
+          "detail": "the large model (demo-large) is used for a one-word routing decision",
+          "evidence_span_ids": [
+            "sp_ce3c0f506a95"
+          ]
+        },
+        {
+          "type": "redundant_tool_call",
+          "kind": "exact_duplicate_tool_call",
+          "detail": "search_orders called twice with order_id=5678",
+          "evidence_span_ids": [
+            "sp_5941982d472a",
+            "sp_e41e4ae0e94b"
+          ]
+        },
+        {
+          "type": "retry_loop",
+          "kind": "tool_retry_loop",
+          "detail": "get_tracking retried 2 times with no backoff",
+          "evidence_span_ids": [
+            "sp_03915958d900",
+            "sp_5d5676bd8fff",
+            "sp_a15458918985"
+          ]
+        },
+        {
+          "type": "context_bloat",
+          "kind": "context_bloat",
+          "detail": "full history with raw tool JSON is re-sent on every LLM call",
+          "evidence_span_ids": [
+            "sp_ce3c0f506a95",
+            "sp_6666c8e00742",
+            "sp_d9a961644637"
+          ]
+        },
+        {
+          "type": "cost",
+          "kind": "prompt_cache_miss",
+          "detail": "a timestamp at the start of the system prompt prevents prompt caching",
+          "evidence_span_ids": [
+            "sp_ce3c0f506a95",
+            "sp_6666c8e00742",
+            "sp_d9a961644637"
+          ]
+        }
+      ]
+    }
+  }
+}

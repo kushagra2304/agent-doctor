@@ -233,3 +233,30 @@ def test_save_failure_never_breaks_agent():
 
     with pytest.warns(RuntimeWarning, match="could not save run"):
         assert agent("x") == "still works"
+
+
+def test_simulated_time_and_ids_are_repeatable():
+    from agent_doctor.store import TraceStore
+    from agent_doctor.testing import deterministic_ids, simulated_time, sleep
+
+    @trace_tool
+    def slow(x: int):
+        sleep(1.5)
+        return x
+
+    def record():
+        s = TraceStore(":memory:")
+
+        @trace_run(store=s)
+        def agent(msg: str):
+            sleep(0.25)
+            slow(1)
+
+        with simulated_time(start_ms=1_000_000), deterministic_ids(seed=3):
+            agent("go")
+        return s.get_run(s.list_runs()[0].run_id)
+
+    a, b = record(), record()
+    assert a == b
+    assert a.duration_ms == 1750 and a.start_ms == 1_000_000
+    assert a.tool_spans[0].duration_ms == 1500

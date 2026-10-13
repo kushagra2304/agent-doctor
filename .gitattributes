@@ -1,0 +1,4 @@
+# Keep fixtures byte-identical across Windows and Linux checkouts.
+*.json text eol=lf
+*.yaml text eol=lf
+*.py   text eol=lf

@@ -8,7 +8,7 @@ all of this as MCP tools, so you can ask Claude or Cursor *"why was run_482 so
 expensive?"* and get a real answer. A replay engine lets you test a new prompt
 or model against saved runs before you deploy.
 
-> Status: **Phase 1**. Recording, storage and cost work. Analysis and MCP tools come next (see roadmap).
+> Status: **Phase 2**. Recording, storage, cost and the test agent work. Analysis and MCP tools come next (see roadmap).
 
 ## Quick start (development)
 
@@ -66,6 +66,12 @@ agent-doctor cost last --prices examples/demo_pricing.yaml
 
 Or with a real open model (needs `HF_TOKEN`): `python examples/hf_quickstart.py`.
 
+## Testing your own agent
+
+`agent_doctor.testing` gives you simulated time (`simulated_time()`, `sleep()`) and
+repeatable IDs (`deterministic_ids()`), so recorded runs are identical on every machine.
+The [bad agent](examples/bad_agent/README.md) uses them to build the fixtures.
+
 ## Commands
 
 | Command | What it does |
@@ -112,7 +118,7 @@ are easy to spot. Tools with `side_effects=True` are never called live during re
 
 - [x] Phase 0: setup, schema, tests, CI
 - [x] Phase 1: SDK (`instrument()`, `@trace_run`, `@trace_tool`), SQLite store, pricing, cost CLI
-- [ ] Phase 2: demo agent with planted problems
+- [x] Phase 2: bad agent with 12 kinds of planted problems; 32 fixture runs with an answer key ([details](examples/bad_agent/README.md))
 - [ ] Phase 3: analyzers (redundancy, loops, latency, context bloat)
 - [ ] Phase 4: MCP server
 - [ ] Phase 5: evaluation suite and replay

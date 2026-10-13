@@ -7,19 +7,60 @@ import math
 import time
 import uuid
 import warnings
+from collections.abc import Callable
 from datetime import date, datetime
 from enum import Enum
-from typing import Any
+from typing import Any, Protocol
 
 MAX_STR = 20_000
 _warned: set[str] = set()
 
 
+class Clock(Protocol):
+    def time_ms(self) -> int: ...  # wall clock, Unix epoch milliseconds
+    def perf(self) -> float: ...  # monotonic seconds, for durations
+    def sleep(self, seconds: float) -> None: ...
+
+
+class SystemClock:
+    def time_ms(self) -> int:
+        return time.time_ns() // 1_000_000
+
+    def perf(self) -> float:
+        return time.perf_counter()
+
+    def sleep(self, seconds: float) -> None:
+        time.sleep(seconds)
+
+
+_clock: Clock = SystemClock()
+_id_factory: Callable[[str], str] | None = None
+
+
+def get_clock() -> Clock:
+    return _clock
+
+
+def set_clock(clock: Clock) -> Clock:
+    """Replace the clock used for all span timings; returns the previous one."""
+    global _clock
+    prev, _clock = _clock, clock
+    return prev
+
+
+def set_id_factory(factory: Callable[[str], str] | None) -> Callable[[str], str] | None:
+    global _id_factory
+    prev, _id_factory = _id_factory, factory
+    return prev
+
+
 def now_ms() -> int:
-    return time.time_ns() // 1_000_000
+    return _clock.time_ms()
 
 
 def new_id(prefix: str) -> str:
+    if _id_factory is not None:
+        return _id_factory(prefix)
     return f"{prefix}_{uuid.uuid4().hex[:12]}"
 
 

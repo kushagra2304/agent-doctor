@@ -1,3 +1,5 @@
-# Made-up prices for the offline demo's fake "demo-model". Not a real model.
+# Made-up prices for the example agents' fake models. These are not real models.
 models:
   - {match: "demo-model", input: 0.50, cached_input: 0.10, output: 1.50}
+  - {match: "demo-large", input: 3.00, cached_input: 0.30, output: 15.00}
+  - {match: "demo-small", input: 0.15, cached_input: 0.03, output: 0.60}
