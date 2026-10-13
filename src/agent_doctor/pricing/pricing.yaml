@@ -1,0 +1,50 @@
+# Built-in model prices, USD per 1 million tokens.
+#
+# Prices change often. Every entry names its source and the date it was checked.
+# To add or override prices, create ~/.agent-doctor/pricing.yaml (or point
+# AGENT_DOCTOR_PRICING at a file) using the same format; your entries win.
+#
+# Matching: names are lower-cased and spaces/underscores become "-". A provider
+# prefix such as "anthropic/" or "Qwen/" is also tried without the prefix.
+# "*" is a wildcard. The most specific (longest) matching pattern wins.
+#
+# Open models routed through Hugging Face Inference Providers are billed at each
+# provider's own rate, and Hugging Face publishes no per-token table, so none are
+# listed here. Add the rate of the provider you use to your own pricing.yaml.
+
+version: 1
+currency: USD
+unit: per_million_tokens
+
+models:
+  # --- Anthropic ---------------------------------------------------------------
+  # Source: https://platform.claude.com/docs/en/about-claude/pricing (checked 2026-10-13)
+  - {match: "claude-fable-5-1*",  provider: anthropic, input: 10.00, cached_input: 0.25, output: 50.00, as_of: "2026-10-13"}
+  - {match: "claude-mythos-5-1*", provider: anthropic, input: 10.00, cached_input: 0.25, output: 50.00, as_of: "2026-10-13"}
+  - {match: "claude-opus-5-5*",   provider: anthropic, input: 4.00,  cached_input: 0.20, output: 20.00, as_of: "2026-10-13"}
+  - {match: "claude-sonnet-5-5*", provider: anthropic, input: 2.00,  cached_input: 0.10, output: 10.00, as_of: "2026-10-13"}
+  - match: "claude-haiku-5-5*"
+    provider: anthropic
+    input: 0.10
+    cached_input: 0.01
+    output: 0.50
+    long_context: {above_input_tokens: 100000, input: 0.50, cached_input: 0.05, output: 2.50}
+    as_of: "2026-10-13"
+  - {match: "claude-fable-5",     provider: anthropic, input: 10.00, cached_input: 1.00, output: 50.00, as_of: "2026-10-13"}
+  - {match: "claude-mythos-5",    provider: anthropic, input: 10.00, cached_input: 1.00, output: 50.00, as_of: "2026-10-13"}
+  - {match: "claude-opus-5",      provider: anthropic, input: 5.00,  cached_input: 0.50, output: 25.00, as_of: "2026-10-13"}
+  - {match: "claude-sonnet-5",    provider: anthropic, input: 2.00,  cached_input: 0.20, output: 10.00, as_of: "2026-10-13"}
+  - {match: "claude-opus-4-[5-8]*", provider: anthropic, input: 5.00, cached_input: 0.50, output: 25.00, as_of: "2026-10-13"}
+  - {match: "claude-opus-4-1*",   provider: anthropic, input: 15.00, cached_input: 1.50, output: 75.00, as_of: "2026-10-13"}
+  # Claude Opus 4 (dated ID claude-opus-4-20250514)
+  - {match: "claude-opus-4-2*",   provider: anthropic, input: 15.00, cached_input: 1.50, output: 75.00, as_of: "2026-10-13"}
+  - {match: "claude-sonnet-4*",   provider: anthropic, input: 3.00,  cached_input: 0.30, output: 15.00, as_of: "2026-10-13"}
+  - {match: "claude-haiku-4-5*",  provider: anthropic, input: 1.00,  cached_input: 0.10, output: 5.00,  as_of: "2026-10-13"}
+  - {match: "claude-3-5-haiku*",  provider: anthropic, input: 0.80,  cached_input: 0.08, output: 4.00,  as_of: "2026-10-13"}
+
+  # --- OpenAI --------------------------------------------------------------------
+  # Source: https://openai.com/api/pricing/ (checked 2026-10-13), standard tier, contexts under 270K.
+  # The page shows display names, not API IDs; confirm these match the model names your API returns.
+  - {match: "gpt-5.6-sol*",   provider: openai, input: 5.00, cached_input: 0.50, output: 30.00, as_of: "2026-10-13"}
+  - {match: "gpt-5.6-terra*", provider: openai, input: 2.00, cached_input: 0.20, output: 12.00, as_of: "2026-10-13"}
+  - {match: "gpt-5.6-luna*",  provider: openai, input: 0.20, cached_input: 0.02, output: 1.20,  as_of: "2026-10-13"}
