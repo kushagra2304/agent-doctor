@@ -260,6 +260,7 @@ class Finding(_Model):
     severity: Severity
     title: str = Field(min_length=1, description="One line, e.g. 'search_orders called 3x'.")
     detail: str = ""
+    suggestion: str = Field(default="", description="What to change to fix it.")
     evidence_span_ids: list[str] = Field(min_length=1)
     wasted_cost_usd: float | None = Field(default=None, ge=0)
     wasted_ms: int | None = Field(default=None, ge=0)

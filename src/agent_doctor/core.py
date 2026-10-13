@@ -4,12 +4,13 @@ Every interface (CLI, MCP server, Gradio demo) calls functions from here and hol
 logic of its own. Functions are added phase by phase:
 
 - Phase 1: get_run, list_runs, estimate_cost
-- Phase 3: analyze
+- Phase 3: analyze, analyze_runs
 - Phase 5: run_eval_suite, compare_prompts, replay
 """
 
 from __future__ import annotations
 
+from agent_doctor.analyzers import DEFAULT_THRESHOLDS, AnalysisReport, Thresholds, analyze_run
 from agent_doctor.pricing import CostReport, PriceTable
 from agent_doctor.pricing import estimate_cost as _estimate_cost
 from agent_doctor.schema import Run
@@ -39,3 +40,29 @@ def estimate_cost(
     if isinstance(run, str):
         run = get_run(run, store)
     return _estimate_cost(run, prices)
+
+
+def analyze(
+    run: Run | str,
+    store: TraceStore | None = None,
+    prices: PriceTable | None = None,
+    thresholds: Thresholds = DEFAULT_THRESHOLDS,
+) -> AnalysisReport:
+    """Find wasted cost, time and reliability problems in one run."""
+    if isinstance(run, str):
+        run = get_run(run, store)
+    return analyze_run(run, prices, thresholds)
+
+
+def analyze_runs(
+    agent: str | None = None,
+    limit: int = 50,
+    store: TraceStore | None = None,
+    prices: PriceTable | None = None,
+    thresholds: Thresholds = DEFAULT_THRESHOLDS,
+) -> list[AnalysisReport]:
+    """Analyze the most recent runs (newest first)."""
+    s = _store(store)
+    prices = prices if prices is not None else PriceTable.load()
+    return [analyze_run(s.get_run(r.run_id), prices, thresholds)
+            for r in s.list_runs(agent=agent, limit=limit)]

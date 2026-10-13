@@ -216,7 +216,7 @@ class SupportAgent:
             order = self.tools.search_orders(order_id)
             self._plant(FindingType.REDUNDANT_TOOL_CALL, "exact_duplicate_tool_call",
                         f"search_orders called twice with order_id={order_id}", [first, self._last()])
-        self._llm("TASK: decide whether tracking is needed", LARGE)
+        self._llm("TASK: decide whether tracking is needed", SMALL)
 
         attempts: list[str] = []
         for _ in range(4):
@@ -259,7 +259,7 @@ class SupportAgent:
         loop_ids: list[str] = []
         suffixes = ["details", "exceptions", "fine print"]
         for i in range(4):
-            decision = self._llm("TASK: decide whether more research is needed", LARGE)
+            decision = self._llm("TASK: decide whether more research is needed", SMALL)
             loop_ids.append(self.llm_ids[-1])
             if decision != "search_more":
                 break

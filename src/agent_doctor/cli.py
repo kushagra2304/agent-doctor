@@ -12,8 +12,9 @@ from rich.console import Console
 from rich.table import Table
 
 from agent_doctor import __version__
+from agent_doctor.analyzers import AnalysisReport, analyze_run
 from agent_doctor.pricing import CostReport, PriceTable, estimate_cost
-from agent_doctor.schema import Run, SpanKind, SpanStatus
+from agent_doctor.schema import Finding, Run, Severity, SpanKind, SpanStatus
 from agent_doctor.store import AmbiguousRunId, RunNotFound, TraceStore, get_default_store
 
 app = typer.Typer(
@@ -319,6 +320,123 @@ def pricing(
                       f"${e.cached_input if e.cached_input is not None else e.input}",
                       f"${e.output}", long_ctx, e.origin if e.origin == "built-in" else Path(e.origin).name)
     console.print(table)
+
+
+_SEV_STYLE = {Severity.HIGH: "bold red", Severity.MEDIUM: "yellow", Severity.LOW: "cyan",
+              Severity.INFO: "dim"}
+
+
+def _kind_label(f: Finding) -> str:
+    return str(f.data.get("kind", f.type.value)).replace("_", " ")
+
+
+def _waste(cost: float | None, ms: int | None, tokens: int | None = None) -> str:
+    parts = []
+    if cost:
+        parts.append(f"~{fmt_usd(cost)}")
+    if ms:
+        parts.append(fmt_ms(ms))
+    if tokens:
+        parts.append(f"{fmt_int(tokens)} tok")
+    return ", ".join(parts) or "-"
+
+
+def _print_analysis(report: AnalysisReport) -> None:
+    status = "[red]error[/red]" if report.status == "error" else "[green]ok[/green]"
+    cost = fmt_usd(report.total_cost_usd) if report.fully_priced else (
+        "cost unknown (unpriced models)" if not report.total_cost_usd
+        else f"{fmt_usd(report.total_cost_usd)}+")
+    console.print(f"[bold]{report.run_id}[/bold]  agent [bold]{report.agent_name}[/bold]  {status}  "
+                  f"{fmt_ms(report.duration_ms)}  {report.llm_calls} LLM / {report.tool_calls} tool calls"
+                  f"  {cost}")
+    if not report.findings:
+        console.print("[green]No problems found.[/green]")
+        return
+    counts = report.counts
+    sev = ", ".join(f"{counts[k]} {k}" for k in ("high", "medium", "low", "info") if k in counts)
+    console.print(f"{len(report.findings)} finding(s): {sev}.  Estimated waste: "
+                  f"{_waste(report.wasted_cost_usd, report.wasted_ms, report.wasted_tokens)}"
+                  " [dim](estimates can overlap)[/dim]")
+    table = Table(show_lines=False)
+    for col, justify in [("", "right"), ("Severity", "left"), ("Problem", "left"),
+                         ("Steps", "left"), ("Waste", "right")]:
+        table.add_column(col, justify=justify)  # type: ignore[arg-type]
+    for i, f in enumerate(report.findings, start=1):
+        steps = ", ".join(f"#{report.step_numbers.get(s, '?')}" for s in f.evidence_span_ids)
+        table.add_row(str(i), f"[{_SEV_STYLE[f.severity]}]{f.severity.value}[/]", f.title, steps,
+                      _waste(f.wasted_cost_usd, f.wasted_ms, f.wasted_tokens))
+    console.print(table)
+    console.print("[bold]How to fix[/bold]")
+    for i, f in enumerate(report.findings, start=1):
+        console.print(f"{i}. [bold]{_kind_label(f).capitalize()}[/bold]: {f.suggestion}")
+        console.print(f"   [dim]{f.detail}[/dim]")
+
+
+@app.command()
+def analyze(
+    run_id: str = typer.Argument(..., help="Run ID, a unique prefix of it, or 'last'."),
+    as_json: bool = typer.Option(False, "--json", help="Print the full report as JSON."),
+    prices_file: Path | None = PricesOpt,
+) -> None:
+    """Find wasted cost, time and reliability problems in a run, with fixes."""
+    run = _load_run(run_id)
+    report = analyze_run(run, _prices(prices_file))
+    if as_json:
+        console.print_json(report.model_dump_json())
+        return
+    _print_analysis(report)
+
+
+@app.command()
+def scan(
+    agent: str | None = typer.Option(None, "--agent", "-a", help="Only this agent's runs."),
+    limit: int = typer.Option(50, "--limit", "-n", min=1, help="How many recent runs to analyze."),
+    prices_file: Path | None = PricesOpt,
+) -> None:
+    """Analyze many runs and show which problems are most common and most costly."""
+    store = _store()
+    rows = store.list_runs(agent=agent, limit=limit)
+    if not rows:
+        console.print(f"No runs in {store.path} yet.")
+        return
+    prices = _prices(prices_file)
+    reports = [analyze_run(store.get_run(r.run_id), prices) for r in rows]
+    stats: dict[str, dict] = {}
+    for rep in reports:
+        for f in rep.findings:
+            st = stats.setdefault(_kind_label(f), {"runs": set(), "cost": 0.0, "ms": 0, "sev": f.severity})
+            st["runs"].add(rep.run_id)
+            st["cost"] += f.wasted_cost_usd or 0
+            st["ms"] += f.wasted_ms or 0
+            if _SEV_RANK[f.severity] < _SEV_RANK[st["sev"]]:
+                st["sev"] = f.severity
+    with_findings = sum(1 for r in reports if r.findings)
+    total_cost = sum(r.total_cost_usd for r in reports)
+    console.print(f"Analyzed {len(reports)} run(s): {with_findings} with problems, "
+                  f"{len(reports) - with_findings} clean. Total cost {fmt_usd(total_cost)}.")
+    if not stats:
+        console.print("[green]No problems found.[/green]")
+        return
+    table = Table(title="Problems across runs", title_justify="left")
+    for col, justify in [("Problem", "left"), ("Worst", "left"), ("Runs", "right"),
+                         ("Share", "right"), ("Est. waste", "right"), ("Time lost", "right")]:
+        table.add_column(col, justify=justify)  # type: ignore[arg-type]
+    for name, st in sorted(stats.items(), key=lambda kv: (_SEV_RANK[kv[1]["sev"]], -kv[1]["cost"],
+                                                         -kv[1]["ms"], -len(kv[1]["runs"]))):
+        table.add_row(name, f"[{_SEV_STYLE[st['sev']]}]{st['sev'].value}[/]", str(len(st["runs"])),
+                      f"{len(st['runs']) / len(reports):.0%}",
+                      f"~{fmt_usd(st['cost'])}" if st["cost"] else "-", fmt_ms(st["ms"]) if st["ms"] else "-")
+    console.print(table)
+    worst = sorted(reports, key=lambda r: (-r.wasted_cost_usd, -len(r.findings)))[:5]
+    console.print("[bold]Runs to look at first[/bold]")
+    for r in worst:
+        if r.findings:
+            console.print(f"  {r.run_id}  {len(r.findings)} finding(s), est. waste "
+                          f"{_waste(r.wasted_cost_usd, r.wasted_ms)}: {r.findings[0].title}")
+    console.print("[dim]Details: agent-doctor analyze RUN_ID[/dim]")
+
+
+_SEV_RANK = {Severity.HIGH: 0, Severity.MEDIUM: 1, Severity.LOW: 2, Severity.INFO: 3}
 
 
 def main() -> None:

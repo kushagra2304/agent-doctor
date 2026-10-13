@@ -8,7 +8,7 @@
       "description": "No planted problems.",
       "faults": [],
       "clean": true,
-      "expected_output": "Order 1234 has shipped and should arrive on Friday.",
+      "expected_output": "Order 1234 has shipped and should arrive on Friday. Is there anything else I can help you with?",
       "answer_correct": true,
       "planted": []
     },
@@ -17,7 +17,7 @@
       "description": "No planted problems.",
       "faults": [],
       "clean": true,
-      "expected_output": "Order 5678 has shipped and should arrive on Monday.",
+      "expected_output": "Order 5678 has shipped and should arrive on Monday. Is there anything else I can help you with?",
       "answer_correct": true,
       "planted": []
     },
@@ -26,7 +26,7 @@
       "description": "No planted problems.",
       "faults": [],
       "clean": true,
-      "expected_output": "You can get a full refund within 30 days of delivery.",
+      "expected_output": "You can get a full refund within 30 days of delivery. Is there anything else I can help you with?",
       "answer_correct": true,
       "planted": []
     },
@@ -35,7 +35,7 @@
       "description": "No planted problems.",
       "faults": [],
       "clean": true,
-      "expected_output": "You can get a full refund within 30 days of delivery.",
+      "expected_output": "You can get a full refund within 30 days of delivery. Is there anything else I can help you with?",
       "answer_correct": true,
       "planted": []
     },
@@ -44,7 +44,7 @@
       "description": "No planted problems.",
       "faults": [],
       "clean": true,
-      "expected_output": "Yes, 12 in stock.",
+      "expected_output": "Yes, 12 in stock. Is there anything else I can help you with?",
       "answer_correct": true,
       "planted": []
     },
@@ -53,7 +53,7 @@
       "description": "No planted problems.",
       "faults": [],
       "clean": true,
-      "expected_output": "Yes, 3 in stock.",
+      "expected_output": "Yes, 3 in stock. Is there anything else I can help you with?",
       "answer_correct": true,
       "planted": []
     },
@@ -64,7 +64,7 @@
         "duplicate_lookup"
       ],
       "clean": false,
-      "expected_output": "Order 1234 has shipped and should arrive on Friday.",
+      "expected_output": "Order 1234 has shipped and should arrive on Friday. Is there anything else I can help you with?",
       "answer_correct": true,
       "planted": [
         {
@@ -85,7 +85,7 @@
         "duplicate_lookup"
       ],
       "clean": false,
-      "expected_output": "Order 5678 has shipped and should arrive on Monday.",
+      "expected_output": "Order 5678 has shipped and should arrive on Monday. Is there anything else I can help you with?",
       "answer_correct": true,
       "planted": [
         {
@@ -106,7 +106,7 @@
         "tracking_failures"
       ],
       "clean": false,
-      "expected_output": "Order 1234 has shipped and should arrive on Friday.",
+      "expected_output": "Order 1234 has shipped and should arrive on Friday. Is there anything else I can help you with?",
       "answer_correct": true,
       "planted": [
         {
@@ -129,7 +129,7 @@
         "tracking_failures"
       ],
       "clean": false,
-      "expected_output": "Order 5678 has shipped and should arrive on Monday.",
+      "expected_output": "Order 5678 has shipped and should arrive on Monday. Is there anything else I can help you with?",
       "answer_correct": true,
       "planted": [
         {
@@ -152,7 +152,7 @@
         "tracking_down"
       ],
       "clean": false,
-      "expected_output": "Order 1234 has shipped and should arrive on Friday.",
+      "expected_output": "Order 1234 has shipped and should arrive on Friday. Is there anything else I can help you with?",
       "answer_correct": false,
       "planted": [
         {
@@ -187,7 +187,7 @@
         "tracking_down"
       ],
       "clean": false,
-      "expected_output": "Order 5678 has shipped and should arrive on Monday.",
+      "expected_output": "Order 5678 has shipped and should arrive on Monday. Is there anything else I can help you with?",
       "answer_correct": false,
       "planted": [
         {
@@ -222,7 +222,7 @@
         "context_bloat"
       ],
       "clean": false,
-      "expected_output": "Order 1234 has shipped and should arrive on Friday.",
+      "expected_output": "Order 1234 has shipped and should arrive on Friday. Is there anything else I can help you with?",
       "answer_correct": true,
       "planted": [
         {
@@ -244,7 +244,7 @@
         "context_bloat"
       ],
       "clean": false,
-      "expected_output": "Order 5678 has shipped and should arrive on Monday.",
+      "expected_output": "Order 5678 has shipped and should arrive on Monday. Is there anything else I can help you with?",
       "answer_correct": true,
       "planted": [
         {
@@ -266,7 +266,7 @@
         "near_duplicate_search"
       ],
       "clean": false,
-      "expected_output": "You can get a full refund within 30 days of delivery.",
+      "expected_output": "You can get a full refund within 30 days of delivery. Is there anything else I can help you with?",
       "answer_correct": true,
       "planted": [
         {
@@ -287,7 +287,7 @@
         "near_duplicate_search"
       ],
       "clean": false,
-      "expected_output": "You can get a full refund within 30 days of delivery.",
+      "expected_output": "You can get a full refund within 30 days of delivery. Is there anything else I can help you with?",
       "answer_correct": true,
       "planted": [
         {
@@ -308,7 +308,7 @@
         "unused_tool"
       ],
       "clean": false,
-      "expected_output": "You can get a full refund within 30 days of delivery.",
+      "expected_output": "You can get a full refund within 30 days of delivery. Is there anything else I can help you with?",
       "answer_correct": true,
       "planted": [
         {
@@ -328,7 +328,7 @@
         "unused_tool"
       ],
       "clean": false,
-      "expected_output": "You can get a full refund within 30 days of delivery.",
+      "expected_output": "You can get a full refund within 30 days of delivery. Is there anything else I can help you with?",
       "answer_correct": true,
       "planted": [
         {
@@ -348,7 +348,7 @@
         "sequential_independent"
       ],
       "clean": false,
-      "expected_output": "You can get a full refund within 30 days of delivery.",
+      "expected_output": "You can get a full refund within 30 days of delivery. Is there anything else I can help you with?",
       "answer_correct": true,
       "planted": [
         {
@@ -370,7 +370,7 @@
         "sequential_independent"
       ],
       "clean": false,
-      "expected_output": "You can get a full refund within 30 days of delivery.",
+      "expected_output": "You can get a full refund within 30 days of delivery. Is there anything else I can help you with?",
       "answer_correct": true,
       "planted": [
         {
@@ -392,7 +392,7 @@
         "search_loop"
       ],
       "clean": false,
-      "expected_output": "You can get a full refund within 30 days of delivery.",
+      "expected_output": "You can get a full refund within 30 days of delivery. Is there anything else I can help you with?",
       "answer_correct": true,
       "planted": [
         {
@@ -421,7 +421,7 @@
         "search_loop"
       ],
       "clean": false,
-      "expected_output": "You can get a full refund within 30 days of delivery.",
+      "expected_output": "You can get a full refund within 30 days of delivery. Is there anything else I can help you with?",
       "answer_correct": true,
       "planted": [
         {
@@ -450,7 +450,7 @@
         "slow_inventory"
       ],
       "clean": false,
-      "expected_output": "Yes, 12 in stock.",
+      "expected_output": "Yes, 12 in stock. Is there anything else I can help you with?",
       "answer_correct": true,
       "planted": [
         {
@@ -470,7 +470,7 @@
         "slow_inventory"
       ],
       "clean": false,
-      "expected_output": "Yes, 3 in stock.",
+      "expected_output": "Yes, 3 in stock. Is there anything else I can help you with?",
       "answer_correct": true,
       "planted": [
         {
@@ -490,7 +490,7 @@
         "big_model_routing"
       ],
       "clean": false,
-      "expected_output": "Yes, 12 in stock.",
+      "expected_output": "Yes, 12 in stock. Is there anything else I can help you with?",
       "answer_correct": true,
       "planted": [
         {
@@ -510,7 +510,7 @@
         "big_model_routing"
       ],
       "clean": false,
-      "expected_output": "Yes, 3 in stock.",
+      "expected_output": "Yes, 3 in stock. Is there anything else I can help you with?",
       "answer_correct": true,
       "planted": [
         {
@@ -530,7 +530,7 @@
         "no_prompt_cache"
       ],
       "clean": false,
-      "expected_output": "Order 1234 has shipped and should arrive on Friday.",
+      "expected_output": "Order 1234 has shipped and should arrive on Friday. Is there anything else I can help you with?",
       "answer_correct": true,
       "planted": [
         {
@@ -552,7 +552,7 @@
         "no_prompt_cache"
       ],
       "clean": false,
-      "expected_output": "Order 5678 has shipped and should arrive on Monday.",
+      "expected_output": "Order 5678 has shipped and should arrive on Monday. Is there anything else I can help you with?",
       "answer_correct": true,
       "planted": [
         {
@@ -574,7 +574,7 @@
         "llm_rate_limit"
       ],
       "clean": false,
-      "expected_output": "Yes, 12 in stock.",
+      "expected_output": "Yes, 12 in stock. Is there anything else I can help you with?",
       "answer_correct": true,
       "planted": [
         {
@@ -597,7 +597,7 @@
         "llm_rate_limit"
       ],
       "clean": false,
-      "expected_output": "Yes, 3 in stock.",
+      "expected_output": "Yes, 3 in stock. Is there anything else I can help you with?",
       "answer_correct": true,
       "planted": [
         {
@@ -624,7 +624,7 @@
         "no_prompt_cache"
       ],
       "clean": false,
-      "expected_output": "Order 1234 has shipped and should arrive on Friday.",
+      "expected_output": "Order 1234 has shipped and should arrive on Friday. Is there anything else I can help you with?",
       "answer_correct": true,
       "planted": [
         {
@@ -687,7 +687,7 @@
         "no_prompt_cache"
       ],
       "clean": false,
-      "expected_output": "Order 5678 has shipped and should arrive on Monday.",
+      "expected_output": "Order 5678 has shipped and should arrive on Monday. Is there anything else I can help you with?",
       "answer_correct": true,
       "planted": [
         {

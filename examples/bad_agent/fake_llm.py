@@ -117,8 +117,15 @@ def _find(pattern: str, text: str) -> str | None:
     return m.group(1).strip() if m else None
 
 
+SIGN_OFF = " Is there anything else I can help you with?"
+
+
 def answer_from_facts(question: str, context: str) -> str:
     """What a careful model would say given these facts; falls back to a vague guess."""
+    return _answer(question, context) + SIGN_OFF
+
+
+def _answer(question: str, context: str) -> str:
     q = question.lower()
     if "refund" in q or "return" in q:
         days = _find(r'"refund_days":\s*(\d+)', context) or _find(r"refund_days=(\d+)", context)
