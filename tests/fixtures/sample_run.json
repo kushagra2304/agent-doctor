@@ -1,0 +1,51 @@
+{
+  "schema_version": "1",
+  "run_id": "run_482",
+  "agent_name": "support-bot",
+  "agent_version": "0.3.0",
+  "task_input": "Where is my order #1234?",
+  "final_output": "Your order #1234 shipped yesterday and should arrive on Friday.",
+  "status": "ok",
+  "tags": {"env": "dev", "user_feedback": "thumbs_up"},
+  "spans": [
+    {"span_id": "s1", "run_id": "run_482", "kind": "agent_step", "name": "handle_message",
+     "start_ms": 1760000000000, "end_ms": 1760000009100},
+
+    {"span_id": "s2", "parent_id": "s1", "run_id": "run_482", "kind": "llm", "name": "Qwen/Qwen2.5-72B-Instruct",
+     "provider": "hf-inference", "start_ms": 1760000000050, "end_ms": 1760000000950,
+     "input_tokens": 4000, "output_tokens": 60, "prompt_version": "v3",
+     "output_text": "call search_orders(order_id='1234')"},
+
+    {"span_id": "s3", "parent_id": "s1", "run_id": "run_482", "kind": "tool", "name": "search_orders",
+     "start_ms": 1760000001000, "end_ms": 1760000001400,
+     "tool_args": {"order_id": "1234"}, "tool_output": {"status": "shipped", "carrier": "BlueDart"}},
+
+    {"span_id": "s4", "parent_id": "s1", "run_id": "run_482", "kind": "llm", "name": "Qwen/Qwen2.5-72B-Instruct",
+     "provider": "hf-inference", "start_ms": 1760000001450, "end_ms": 1760000002300,
+     "input_tokens": 8200, "output_tokens": 55, "prompt_version": "v3"},
+
+    {"span_id": "s5", "parent_id": "s1", "run_id": "run_482", "kind": "tool", "name": "search_orders",
+     "start_ms": 1760000002350, "end_ms": 1760000002750,
+     "tool_args": {"order_id": "1234"}, "tool_output": {"status": "shipped", "carrier": "BlueDart"}},
+
+    {"span_id": "s6", "parent_id": "s1", "run_id": "run_482", "kind": "tool", "name": "get_tracking",
+     "start_ms": 1760000002800, "end_ms": 1760000003300, "status": "error",
+     "error_type": "TimeoutError", "error_message": "carrier API timed out after 500 ms",
+     "tool_args": {"carrier": "BlueDart", "order_id": "1234"}},
+
+    {"span_id": "s7", "parent_id": "s1", "run_id": "run_482", "kind": "tool", "name": "get_tracking",
+     "start_ms": 1760000003350, "end_ms": 1760000003900, "retry_of": "s6",
+     "tool_args": {"order_id": "1234", "carrier": "BlueDart"}, "tool_output": {"eta": "Friday"}},
+
+    {"span_id": "s8", "parent_id": "s1", "run_id": "run_482", "kind": "llm", "name": "Qwen/Qwen2.5-72B-Instruct",
+     "provider": "hf-inference", "start_ms": 1760000003950, "end_ms": 1760000009000,
+     "input_tokens": 22000, "output_tokens": 140, "cached_tokens": 4000,
+     "time_to_first_token_ms": 1800, "prompt_version": "v3",
+     "output_text": "Your order #1234 shipped yesterday and should arrive on Friday."},
+
+    {"span_id": "s9", "parent_id": "s1", "run_id": "run_482", "kind": "tool", "name": "send_reply",
+     "start_ms": 1760000009010, "end_ms": 1760000009090, "side_effects": true,
+     "tool_args": {"channel": "chat", "text": "Your order #1234 shipped yesterday and should arrive on Friday."},
+     "tool_output": {"delivered": true}}
+  ]
+}
