@@ -1,244 +1,192 @@
 # Agent Doctor
 
-Find out why your AI agent is expensive, slow or unreliable, and how to fix it.
+**Find out why your AI agent is expensive, slow or unreliable, and how to fix it.**
 
-Agent Doctor records every step of an agent run (LLM calls, tool calls, retries,
-errors), finds wasted cost and time, and recommends concrete fixes. It exposes
-all of this as MCP tools, so you can ask Claude or Cursor *"why was run_482 so
-expensive?"* and get a real answer. A replay engine lets you test a new prompt
-or model against saved runs before you deploy.
+[![PyPI](https://img.shields.io/pypi/v/agent-doctor-cli)](https://pypi.org/project/agent-doctor-cli/)
+[![Python](https://img.shields.io/pypi/pyversions/agent-doctor-cli)](https://pypi.org/project/agent-doctor-cli/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
-> Status: **0.5.0, [on PyPI](https://pypi.org/project/agent-doctor-cli/)**. Recording, cost, problem detection, fix plans, the MCP server, replay, evaluation and importers from other tracing tools all work.
+Agent Doctor records every step of an agent run (LLM calls, tool calls, retries, errors),
+detects wasted cost and time, recommends concrete fixes, and lets you prove a fix works
+before you ship it. It runs entirely on your machine, and its analysis uses no LLM calls,
+so it is free, fast and repeatable.
 
-## Install
+```
+$ agent-doctor analyze last
+run_dc3352eba323  agent support-bot  ok  3.93 s  3 LLM / 6 tool calls  $0.0135
+5 finding(s).  Estimated waste: ~$0.009369, 1.12 s, 5,812 tok
+
+| 1 | medium | Prompt grew 2.9x over 3 LLM calls (1,095 to 3,141 tokens)     | #2, #5, #9 |
+| 2 | medium | Prompt caching is broken by text that changes at the start     | #2, #5, #9 |
+| 3 | medium | get_tracking failed 2x and was retried with no backoff         | #6, #7, #8 |
+| 4 | medium | search_orders called 2x with the same arguments                | #3, #4     |
+| 5 | medium | demo-large used for a 3-token answer                           | #2         |
+```
+
+## Contents
+
+- [Features](#features)
+- [Installation](#installation)
+- [Quick start](#quick-start)
+- [Recording your agent](#recording-your-agent)
+- [Finding problems](#finding-problems)
+- [Fix plans](#fix-plans)
+- [Testing a change: replay and evals](#testing-a-change-replay-and-evals)
+- [Importing traces from other tools](#importing-traces-from-other-tools)
+- [MCP server](#mcp-server)
+- [Configuration](#configuration)
+- [How it works](#how-it-works)
+- [Accuracy](#accuracy)
+- [Command reference](#command-reference)
+- [Development](#development)
+- [Roadmap](#roadmap)
+
+## Features
+
+- **Recording SDK.** One line wraps an OpenAI-compatible, Anthropic or Hugging Face client;
+  two decorators record your runs and tools. Sync, async and streaming are supported.
+- **Cost accounting.** Cost per call, per model and per run from built-in prices, with
+  cached-token savings and a projection for 1,000 runs.
+- **12 detectors** for wasted cost, time and reliability problems. Each finding cites the
+  steps that prove it and estimates the waste.
+- **Fix plans** from 15 playbooks, each with the fix in code and a way to verify it;
+  optionally written up by an LLM.
+- **Replay** a recorded run with a new prompt, model or code. Tools are answered from the
+  recording and side-effect tools never run.
+- **Evals** that compare agent versions case by case with paired statistics, and exit 1 on
+  a regression so they can gate CI.
+- **Importers** for OpenTelemetry (GenAI conventions), Langfuse and LangSmith.
+- **Redaction** of emails, phone and card numbers, API keys, tokens and IP addresses.
+- **MCP server** so Claude, Cursor and other clients can answer questions about your runs.
+
+## Installation
+
+Requires Python 3.10 or newer.
 
 ```bash
-pip install agent-doctor-cli              # the package is "agent-doctor-cli"; the command is agent-doctor
-pip install "agent-doctor-cli[mcp]"       # plus the MCP server for Claude, Cursor and other clients
-pip install "agent-doctor-cli[mcp,hf]"    # plus Hugging Face InferenceClient support
+pip install agent-doctor-cli                 # library and the agent-doctor command
+pip install "agent-doctor-cli[mcp]"          # plus the MCP server
+pip install "agent-doctor-cli[mcp,hf]"       # plus Hugging Face InferenceClient support
 ```
 
-In Python, import it as `agent_doctor`. To see it work before touching your own code, load
-the [bad agent](examples/bad_agent/README.md)'s 32 demo runs from a clone of this repo
-(`python -m examples.bad_agent.generate --save`) and run `agent-doctor scan`.
+The package is `agent-doctor-cli`, the command is `agent-doctor`, and the import is
+`agent_doctor`.
 
-## Quick start (development)
+## Quick start
 
-Windows (PowerShell). Needs Python 3.10 or newer; check with `python --version`.
-These commands use the venv's own Python, so no activation step is needed:
-
-```powershell
-python -m venv .venv
-.venv\Scripts\python -m pip install -e ".[dev,hf]"
-.venv\Scripts\python -m pytest
-.venv\Scripts\agent-doctor validate tests/fixtures/sample_run.json
-```
-
-macOS / Linux:
+See it work on the demo agent before touching your own code. The demo is a support agent
+with 36 known problems planted across 32 runs; it needs no API key.
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -e ".[dev,hf]"
-pytest
-agent-doctor validate tests/fixtures/sample_run.json
+git clone https://github.com/kushagra2304/agent-doctor.git && cd agent-doctor
+pip install -e .
+python -m examples.bad_agent.generate --save   # record the 32 demo runs
+agent-doctor scan --prices examples/demo_pricing.yaml
+agent-doctor analyze <run id> --prices examples/demo_pricing.yaml
+agent-doctor recommend --prices examples/demo_pricing.yaml
+agent-doctor eval examples/bad_agent/eval_suite.py
 ```
 
-## Record your agent
+## Recording your agent
 
 ```python
-from huggingface_hub import InferenceClient
+from openai import OpenAI
 from agent_doctor import instrument, trace_run, trace_tool
 
-client = instrument(InferenceClient(model="Qwen/Qwen2.5-7B-Instruct"))  # every LLM call recorded
+client = instrument(OpenAI())        # every LLM call: model, tokens, timing, prompt, response
 
-@trace_tool                      # each call becomes a tool span (args, output, errors, retries)
-def search_orders(order_id: str): ...
+@trace_tool                          # arguments, result, errors, timing, retries
+def search_orders(order_id: str) -> dict: ...
 
-@trace_tool(side_effects=True)   # never called live during replay
-def send_reply(text: str): ...
+@trace_tool(side_effects=True)       # changes the world: never run during replay
+def send_reply(customer_id: str, text: str) -> dict: ...
 
-@trace_run(agent="support-bot", prompt_version="v3")   # each call becomes one run
-def handle(message: str) -> str: ...
+@trace_run(agent="support-bot", prompt_version="v3")   # one call = one run
+def handle(question: str) -> str: ...
 ```
 
-`instrument()` also works with OpenAI-compatible and Anthropic clients, sync or async,
-streaming or not. Runs are saved to `~/.agent-doctor/traces.db`. Recording never breaks
-your agent: if anything goes wrong it warns once and carries on. Set
-`AGENT_DOCTOR_DISABLED=1` to turn it off.
+`instrument()` supports OpenAI-compatible clients (OpenAI, Ollama, vLLM, Together, Groq and
+others), Anthropic clients and Hugging Face `InferenceClient`, sync or async, streaming or
+not. Runs are saved to a local SQLite database, `~/.agent-doctor/traces.db`.
 
-Try it without an API key:
+Recording never breaks your agent: provider responses and exceptions pass through
+unchanged, and if recording itself fails it warns once and carries on.
+
+## Finding problems
 
 ```bash
-python examples/offline_demo.py
-agent-doctor runs --prices examples/demo_pricing.yaml
-agent-doctor show last              # every step, with retries and errors
-agent-doctor cost last --prices examples/demo_pricing.yaml
+agent-doctor runs                 # recent runs: duration, calls, errors, tokens, cost
+agent-doctor show RUN             # every step of one run
+agent-doctor cost RUN             # cost per call and per model
+agent-doctor analyze RUN          # problems in one run, with evidence and fixes
+agent-doctor scan -n 500          # problems across runs, most common and costly first
 ```
 
-Or with a real open model (needs `HF_TOKEN`): `python examples/hf_quickstart.py`.
+`RUN` is a run ID, a unique prefix of one, or `last`.
 
-## Find the problems
+| Category | Detector | Finds |
+| --- | --- | --- |
+| Cost | Context bloat | Prompts growing steadily as history and raw tool output pile up |
+| Cost | Prompt cache miss | A long shared prompt never served from cache, e.g. a timestamp at the top |
+| Cost | Expensive model for a simple step | A large model producing a one-word decision |
+| Repeats | Exact duplicate tool call | The same tool called again with the same arguments |
+| Repeats | Near-duplicate tool call | The same question reworded, returning the same result |
+| Repeats | Tool retry loop | A failing call retried 2+ times, flagged when there is no backoff |
+| Repeats | LLM retry without backoff | Rate-limited or failed LLM calls retried immediately |
+| Repeats | No-progress loop | The agent keeps calling tools that return nothing new |
+| Latency | Slow step | One tool taking most of the run |
+| Latency | Sequential independent calls | Back-to-back calls that could run in parallel |
+| Reliability | Swallowed failure | A tool never worked, yet the run ended "ok" with an answer that hides it |
+| Reliability | Unused tool output | A tool result that never reaches any later LLM call |
+
+Thresholds favour precision over recall and live in `agent_doctor.analyzers.Thresholds`.
+
+## Fix plans
 
 ```bash
-agent-doctor analyze last          # one run: problems, evidence steps, estimated waste, fixes
-agent-doctor scan -n 100           # many runs: which problems are most common and costly
+agent-doctor recommend RUN                   # one run
+agent-doctor recommend -n 200                # the fixes that matter most across recent runs
+agent-doctor recommend RUN --llm anthropic   # also have an LLM write the plan up
+agent-doctor playbooks [QUERY]               # list or search the playbooks
 ```
 
-Twelve deterministic detectors (plain code, no LLM calls, so analysis is free and instant):
+Findings are matched to playbooks by problem type, BM25 search and provider, then ranked by
+the waste they remove. Each playbook explains why the problem matters, how to fix it with
+code, and how to verify the fix. Retrieval is deterministic and needs no LLM. `--llm`
+accepts `anthropic`, `openai:MODEL` or `hf:MODEL`. Add your own playbooks as markdown files
+with `--playbooks DIR`.
 
-| Detector | Finds |
-| --- | --- |
-| Exact duplicate tool call | The same tool called again with the same arguments |
-| Near-duplicate tool call | The same question reworded, returning the same result |
-| Unused tool output | A tool result that never reaches any later LLM call |
-| Tool retry loop | A failing call retried 2+ times, flagged when there is no backoff |
-| LLM retry without backoff | Rate-limited or failed LLM calls retried immediately |
-| No-progress loop | The agent keeps calling tools that return nothing new |
-| Swallowed failure | A tool never worked, yet the run ended "ok" with an answer |
-| Slow step | One tool taking most of the run |
-| Sequential independent calls | Back-to-back calls that could run in parallel |
-| Context bloat | Prompts growing steadily as history and raw tool output pile up |
-| Expensive model for a simple step | A large model producing a one-word decision |
-| Prompt cache miss | A long shared prompt never served from cache, e.g. a timestamp at the top |
+## Testing a change: replay and evals
 
-Each finding names the steps that prove it (as numbered by `agent-doctor show`) and
-estimates the wasted cost, time or tokens. All thresholds live in
-`agent_doctor.analyzers.Thresholds`.
-
-**Graded against an answer key.** On the [bad agent](examples/bad_agent/README.md)'s 32
-runs the detectors find all 36 planted problems with no false alarms on the clean runs:
-`python -m examples.bad_agent.score`.
-
-**Checked on a real model.** The [real agent](examples/real_agent/README.md) is a
-tool-calling agent on qwen2.5 (free, on a local Ollama) with nothing planted. Every finding
-was checked by hand against the traces; the write-up covers what Agent Doctor got right and
-the three bugs this turned up (all fixed).
-
-## Get a fix plan
+### Replay
 
 ```bash
-agent-doctor recommend last                     # one run
-agent-doctor recommend -n 200                   # the fixes that matter most across recent runs
-agent-doctor recommend last --llm anthropic     # also have Claude write the plan up
+agent-doctor replay RUN --agent my_app.bot:handle
+agent-doctor replay RUN --agent my_app.bot:handle -m gpt-4o=gpt-4o-mini
 ```
 
-Each finding is matched to fix playbooks: why the problem matters, how to fix it with code,
-and how to verify the fix with `replay` or `eval`. Fixes are ranked by severity and by the
-waste they remove. Provider-specific advice (prompt caching for Claude or OpenAI) only shows
-up when the run actually used that provider.
+Replay runs your agent again on a recorded run's input and compares the old and new runs:
+answer, time, calls, tokens, cost and problems.
 
-Retrieval is deterministic and free: no LLM is needed. With `--llm anthropic` (default model
-`claude-opus-5-5`), `--llm openai:MODEL` or `--llm hf:MODEL`, an LLM also writes a short plan
-from the run's evidence and the retrieved playbooks, citing them by ID. Over MCP, Claude or
-Cursor gets the playbooks from `recommend_fixes` and writes the plan itself.
+- **Tool calls are answered from the recording**: the same output, or the same error with
+  its original exception class, after the recorded latency.
+- **Side-effect tools never run**; they are stubbed.
+- **LLM calls are live**, because they are what you are testing. `-m OLD=NEW` swaps models
+  without code changes.
 
-Browse the playbooks with `agent-doctor playbooks [QUERY]` and `agent-doctor playbooks --show ID`.
-Add your team's own as markdown files with front matter and pass `--playbooks DIR`; see
-[the built-in ones](src/agent_doctor/recommender/playbooks/) for the format.
-
-## Bring traces from other tools
-
-```bash
-agent-doctor import otel-export.json            # OpenTelemetry (OTLP JSON, GenAI conventions)
-agent-doctor import langfuse-observations.json  # Langfuse API or trace export
-agent-doctor import langsmith-runs.json         # LangSmith runs (flat or with child_runs)
-agent-doctor import traces.jsonl --redact       # JSON lines too; scrub personal data first
-```
-
-The format is detected automatically (`--format` to force one). One trace becomes one run;
-LLM calls, tool calls, errors and token counts are mapped onto Agent Doctor's schema, and
-retries of failed tool calls are linked, so every detector works on imported traces.
-
-**Redaction.** `--redact` on import, or `AGENT_DOCTOR_REDACT=1` while recording, replaces
-emails, phone numbers, card numbers (Luhn-checked), API keys, bearer tokens, JWTs, AWS keys and
-IP addresses with placeholders, and masks values under keys like `password` or `api_key`.
-Duplicate-call detection keeps working, because argument hashes are taken before redaction.
-Add your own patterns with `agent_doctor.ingest.Redactor(extra=[("ORDER", r"ORD-\d+")])`.
-
-## Ask Claude or Cursor about your runs (MCP)
-
-```bash
-pip install "agent-doctor-cli[mcp]"
-claude mcp add agent-doctor -- agent-doctor mcp      # Claude Code
-```
-
-For Claude Desktop, Cursor or any other MCP client, add this to its MCP config
-(`claude_desktop_config.json`, `.cursor/mcp.json`). If `agent-doctor` is installed in a
-virtualenv, give the full path to it as `command`:
-
-```json
-{
-  "mcpServers": {
-    "agent-doctor": {"command": "agent-doctor", "args": ["mcp"]}
-  }
-}
-```
-
-Add `"--prices", "path/to/pricing.yaml"` after `"mcp"` for extra prices, or `"--db", "path/to/traces.db"`
-before it for another database. Then ask things like *"why was the last run so expensive?"*
-or *"what problems does support-bot have most often?"*.
-
-The server has eleven read-only tools. They never change your data or call your agent:
-
-| Tool | Answers |
-| --- | --- |
-| `list_runs` | Which runs are there, and what did each cost? |
-| `analyze_run` | What went wrong in this run, which steps prove it, and how do I fix it? |
-| `explain_cost` | Where did the money go: per model, per step, cache savings, cost of 1,000 runs |
-| `show_run` | What happened, step by step? |
-| `get_step` | The full prompt, output, tool arguments and result of one step, and the findings that cite it |
-| `scan_runs` | Which problems are most common and most costly across many runs? |
-| `compare_runs` | Why did this run cost or take more than that one? |
-| `recommend_fixes` | How do I fix it? The playbooks that remove the most waste, with code and how to verify |
-| `search_playbooks` | Find a fix playbook by topic, e.g. "prompt caching with Claude" |
-| `list_evals` | Which evaluations have been run, and what was each verdict? |
-| `get_eval` | Did the new prompt or model break anything? Pass rates, cost, latency, and the broken and fixed cases with both answers |
-
-## Test a change before you deploy
-
-### Replay a run
-
-Run your agent again on a saved run's input, with a new prompt, model or code:
-
-```bash
-agent-doctor replay last --agent my_app.bot:handle                    # handle(task_input)
-agent-doctor replay last --agent my_app.bot:handle -m gpt-4o=gpt-4o-mini
-```
-
-You get the old and new answer side by side, the change in time, calls, tokens and cost,
-and which problems were fixed, which are new, and which are still there.
-
-- **Tool calls are answered from the recording.** A call matching a recorded one (same tool,
-  same arguments) returns the recorded output, or raises the recorded error again with its
-  original exception class, without running the tool. Each one also takes as long as the
-  recorded call did, so durations compare fairly (`--no-latency` to skip that).
-- **Side-effect tools never run.** `@trace_tool(side_effects=True)` tools are stubbed, so a
-  replay never sends an email or charges a card.
-- **New calls run live**, unless you pass `--strict`. `--live-tools` runs every tool live
-  (side-effect tools still never run).
-- **LLM calls are live.** They are what you are testing. `-m OLD=NEW` swaps models without
-  touching your code.
-
-From Python: `agent_doctor.replay.replay(run, handle, model_map={...})`.
-
-### Evaluate and compare versions
-
-An evaluation suite is a Python file with test cases, scorers and the versions to compare.
-The first version is the baseline. `None` means "the runs as they were recorded", so you can
-compare a new prompt with what production actually did:
+### Evals
 
 ```python
 # evals/support_bot.py
-from agent_doctor.evals import Suite, Variant, cases_from_runs, load_cases, scorers
+from agent_doctor.evals import Suite, Variant, load_cases, scorers
 from my_app.bot import handle, handle_v2
 
 suite = Suite(
     name="support-bot",
-    cases=load_cases("evals/support_bot.yaml"),     # or cases_from_runs(saved runs)
+    cases=load_cases("evals/support_bot.yaml"),        # or cases_from_runs(recorded runs)
     scorers=[scorers.exact_match(), scorers.completed(), scorers.no_problems("high")],
     variants={
-        "recorded": None,
+        "recorded": None,                              # the runs as recorded: the baseline
         "v2-prompt": handle_v2,
         "mini": Variant(handle, model_map={"gpt-4o": "gpt-4o-mini"}),
     },
@@ -249,140 +197,188 @@ suite = Suite(
 agent-doctor eval evals/support_bot.py
 ```
 
-Each case is replayed against its recorded run when it has one (`source_run_id`), and run
-live otherwise. Side-effect tools are blocked either way. Every new run also goes through the
-twelve detectors, so the report shows pass rate, cost, latency and problems for each
-version. The comparison pairs results case by case: which cases broke, which got fixed, and
-an exact McNemar test that says whether the difference could be chance. **The command exits
-with code 1 if any case that passed before fails now**, so it can gate a deploy in CI.
-
-Every evaluation is saved (`--no-record` to skip): `agent-doctor evals` lists them and
-`agent-doctor evals last` shows one again. Over MCP, ask Claude or Cursor *"did the last
-eval break anything?"* and it reads the result, including both versions' answers for each
-broken case.
-
-Built-in scorers: `exact_match`, `contains`, `matches` (regex), `similarity` (word overlap),
-`completed`, `no_problems`, `max_cost`, `max_latency`. Write your own with `@scorer`:
-
-```python
-from agent_doctor.evals import scorer
-
-@scorer
-def mentions_order_id(case, attempt):
-    return case.kwargs["order_id"] in (attempt.output_text or "")
+```
+| Variant     | Pass | Cost      | Mean time | Problems |
+| recorded    |  81% | $0.0600   |    2.13 s |       36 |
+| fixed       |  88% | $0.0232   |    1.77 s |       12 |
+| fixed-small |  88% | $0.003555 |    1.18 s |       12 |
+fixed vs recorded: better. 2 case(s) fixed, none broken (p=0.500, could be chance with
+32 cases); cost -61%; time -17%; 24 fewer problem(s)
 ```
 
-Try it on the bad agent: `agent-doctor eval examples/bad_agent/eval_suite.py`. Fixing the
-agent's own faults cuts cost by 61% and removes 24 of the 36 problems with no answer getting
-worse. Sending large-model calls to the small model (`model_map`) cuts cost by 94%. The
-replays keep the recorded environment, so the tracking API that was down is still down, and
-those two answers stay wrong.
+Results are paired case by case. An exact McNemar test says whether pass/fail changes could
+be chance, and each scorer's own changes are reported, so one failing scorer cannot hide a
+regression in another. **The command exits 1 if any case that passed before now fails.**
+Results are saved; `agent-doctor evals` lists them.
 
-## Use it on your real agent
+Built-in scorers: `exact_match`, `contains`, `matches`, `similarity`, `completed`,
+`no_problems`, `max_cost`, `max_latency`. Write your own with `@scorer`.
 
-1. **Record real traffic.** Add `instrument()` and the decorators (see
-   [Record your agent](#record-your-agent)) and run your agent as usual: in production, in
-   staging, or over a list of real user questions. Runs go to `~/.agent-doctor/traces.db`.
+## Importing traces from other tools
 
-   | Environment variable | Use |
-   | --- | --- |
-   | `AGENT_DOCTOR_DB` | Where to save runs, e.g. one database per service or environment |
-   | `AGENT_DOCTOR_REDACT=1` | Scrub emails, phone and card numbers, keys and tokens before saving |
-   | `AGENT_DOCTOR_DISABLED=1` | Turn recording off without changing code |
-   | `AGENT_DOCTOR_PRICING` | Your own price file, if your models are not in the built-in table |
+```bash
+agent-doctor import otel-export.json            # OpenTelemetry, OTLP JSON (GenAI conventions)
+agent-doctor import langfuse-observations.json  # Langfuse
+agent-doctor import langsmith-runs.json         # LangSmith
+agent-doctor import traces.jsonl --redact       # JSON lines; scrub personal data first
+```
 
-   Already tracing with OpenTelemetry, Langfuse or LangSmith? Export the traces and
-   `agent-doctor import` them instead.
+The format is detected automatically. Imported runs work with every command.
 
-2. **Find the problems.** `agent-doctor scan -n 500` ranks problems by how common and
-   costly they are; `agent-doctor analyze RUN` explains one run step by step.
+## MCP server
 
-3. **Fix them.** `agent-doctor recommend` gives the plan, with code and a way to verify
-   each fix.
+```bash
+pip install "agent-doctor-cli[mcp]"
+claude mcp add agent-doctor -- agent-doctor mcp     # Claude Code
+```
 
-4. **Prove the fix before you ship it.** Turn the recorded runs into eval cases
-   (`cases_from_runs`), add scorers for what "correct" means for your agent, and run
-   `agent-doctor eval` with the old and new versions. The
-   [real agent's suite](examples/real_agent/eval_suite.py) is a complete example: it
-   compares two prompts and two models on recorded customer questions.
+For Claude Desktop, Cursor or another MCP client:
 
-5. **Keep watching.** Scan new runs regularly, or ask Claude or Cursor about them through
-   the MCP server.
+```json
+{
+  "mcpServers": {
+    "agent-doctor": {"command": "agent-doctor", "args": ["mcp"]}
+  }
+}
+```
 
-Detectors find waste and failures; they do not judge whether an answer is *right*. On the
-real agent the scan was clean while 2 of 10 answers were wrong. Answer quality is what
-`eval` with your own scorers is for, so use both.
+Then ask *"why was the last run so expensive?"* or *"did the last eval break anything?"*.
+The server exposes eleven read-only tools: `list_runs`, `analyze_run`, `explain_cost`,
+`show_run`, `get_step`, `scan_runs`, `compare_runs`, `recommend_fixes`, `search_playbooks`,
+`list_evals` and `get_eval`.
 
-## Testing your own agent
+## Configuration
 
-`agent_doctor.testing` gives you simulated time (`simulated_time()`, `sleep()`) and
-repeatable IDs (`deterministic_ids()`), so recorded runs are identical on every machine.
-The [bad agent](examples/bad_agent/README.md) uses them to build the fixtures.
+| Environment variable | Default | Purpose |
+| --- | --- | --- |
+| `AGENT_DOCTOR_HOME` | `~/.agent-doctor` | Folder for local data |
+| `AGENT_DOCTOR_DB` | `$AGENT_DOCTOR_HOME/traces.db` | Trace database |
+| `AGENT_DOCTOR_PRICING` | `$AGENT_DOCTOR_HOME/pricing.yaml` | Your prices, overriding the built-ins |
+| `AGENT_DOCTOR_REDACT` | unset | `1` to scrub personal data and secrets before saving |
+| `AGENT_DOCTOR_DISABLED` | unset | `1` to turn recording off |
 
-## Commands
-
-| Command | What it does |
-| --- | --- |
-| `agent-doctor analyze RUN` | Problems in one run, with evidence, estimated waste and fixes |
-| `agent-doctor scan` | Problems across many runs, most serious and costly first |
-| `agent-doctor replay RUN --agent M:F` | Run your agent again on a saved run, tools answered from the recording |
-| `agent-doctor eval SUITE.py` | Evaluate and compare agent versions; exits 1 if any case regressed |
-| `agent-doctor evals [ID]` | List saved evaluation results, or show one again |
-| `agent-doctor mcp` | Run the MCP server over stdio (needs the `mcp` extra) |
-| `agent-doctor runs` | List recent runs with duration, calls, errors, tokens and cost |
-| `agent-doctor show RUN` | Every step of a run as a tree, with retries, errors and cached tokens |
-| `agent-doctor cost RUN` | Cost per LLM call and per model, cache savings, cost of 1,000 runs |
-| `agent-doctor recommend [RUN]` | Ranked fix plan from the playbooks; `--llm` to have an LLM write it up |
-| `agent-doctor playbooks [QUERY]` | List, search (`QUERY`) or read (`--show ID`) the fix playbooks |
-| `agent-doctor import FILE` | Load runs: Agent Doctor JSON, OTLP JSON, Langfuse or LangSmith; `--redact` |
-| `agent-doctor validate FILE` | Check a trace file against the schema |
-| `agent-doctor pricing [-m MODEL]` | List prices, or show which price a model gets |
-
-`RUN` is a run ID from `agent-doctor runs`, a unique prefix of it, or `last` for the most recent run. Add `--json` to `cost` or `analyze` for machine-readable output.
-
-## Pricing
-
-Built-in prices (USD per 1M tokens) cover current Claude and OpenAI models, each with
-its source and the date it was checked. Open models routed through Hugging Face
-Inference Providers are billed at each provider's rate, which Hugging Face does not
-publish as a table, so add the rate you pay to `~/.agent-doctor/pricing.yaml`:
+**Pricing.** Built-in prices cover current Claude and OpenAI models. For other models, add
+the rate you pay (USD per 1M tokens):
 
 ```yaml
+# ~/.agent-doctor/pricing.yaml
 models:
-  # example numbers: put in the rate your provider charges
   - {match: "Qwen/Qwen2.5-7B-Instruct", provider: together, input: 0.30, output: 0.30}
 ```
 
-Your entries win over the built-ins; `*` is a wildcard. Models with no price are
-reported as "unpriced" instead of being counted as free.
+Models without a price are reported as "unpriced", never counted as free.
 
-## The trace schema
+## How it works
 
-Every trace is normalized into three models in `src/agent_doctor/schema.py`:
+```mermaid
+flowchart LR
+    subgraph App["Your agent process"]
+        A["Agent code<br/>@trace_run"] --> L["LLM client<br/>instrument()"]
+        A --> T["Tools<br/>@trace_tool"]
+        L --> R["RunRecorder"]
+        T --> R
+    end
+    I["OpenTelemetry / Langfuse /<br/>LangSmith exports"] -->|import| S
+    R -->|"build, redact, save"| S[("SQLite trace store")]
+    S --> D["Pricing +<br/>12 detectors"]
+    S --> P["Recommender<br/>15 playbooks"]
+    S --> E["Replay + evals"]
+    D --> C["core API"]
+    P --> C
+    E --> C
+    C --> CLI["agent-doctor CLI"]
+    C --> MCP["MCP server"]
+```
 
-| Model | What it is |
+1. **Record.** `instrument()` replaces the client's completion method with a wrapper that
+   times the call, reads token usage and tool requests from the response, and returns the
+   response unchanged. `@trace_run` holds the active run in a context variable, so LLM and
+   tool calls anywhere in your code (including under asyncio) attach to the right run.
+2. **Store.** At the end of a run the spans are validated into a `Run`, optionally
+   redacted, and saved to SQLite.
+3. **Analyze.** Detectors are pure functions over a run; they read only what the SDK
+   records and never call an LLM.
+4. **Act.** The recommender maps findings to playbooks; replay and evals measure whether a
+   change helped. The CLI and the MCP server share one API, so they always agree.
+
+| Module | Responsibility |
 | --- | --- |
-| `Span` | One step: an LLM call, tool call, retrieval or agent step, with timing, tokens, inputs and outputs |
-| `Run` | One full agent execution for one input; holds its spans and validates that they fit together |
-| `Finding` | One problem an analyzer found, with evidence span IDs and wasted cost or time |
+| `schema.py` | `Span`, `Run` and `Finding`, the shared data model |
+| `sdk/` | `instrument()`, `@trace_run`, `@trace_tool`, the run recorder |
+| `store/` | SQLite storage for runs and eval results |
+| `pricing/` | Price table and cost calculation |
+| `analyzers/` | The 12 detectors, reports, run comparison |
+| `recommender/` | Playbooks, retrieval, optional LLM write-up |
+| `replay/`, `evals/` | Replay engine, scorers, statistics, suites |
+| `ingest/` | OpenTelemetry, Langfuse and LangSmith importers; redaction |
+| `core.py`, `cli.py`, `mcp_server.py` | Public API and its two interfaces |
 
-Tool arguments are hashed (`args_hash`, key order ignored) so repeated tool calls
-are easy to spot. Tools with `side_effects=True` are never called live during replay.
+## Accuracy
+
+- **Answer key.** On the [bad agent](examples/bad_agent/README.md)'s 32 runs, the detectors
+  find all 36 planted problems with no false alarms on clean runs (100% recall and
+  precision). This scorecard is part of the test suite.
+- **Real model.** The [real agent](examples/real_agent/README.md) is a tool-calling agent on
+  qwen2.5 (local, via Ollama) with nothing planted. Every finding and answer was checked by
+  hand against the traces; the write-up covers the results and the bugs this found.
+- **Scope.** Detectors find waste and failures, not wrong answers. Judge answer quality with
+  `eval` and your own scorers. Waste figures are estimates and are marked with `~`.
+
+## Command reference
+
+| Command | Description |
+| --- | --- |
+| `runs` | List recent runs with duration, calls, errors, tokens and cost |
+| `show RUN` | Every step of a run, with retries, errors and cached tokens |
+| `cost RUN` | Cost per LLM call and per model, cache savings, cost of 1,000 runs |
+| `analyze RUN` | Problems in one run, with evidence, estimated waste and fixes |
+| `scan` | Problems across many runs, most serious and costly first |
+| `recommend [RUN]` | Ranked fix plan; `--llm` to have an LLM write it up |
+| `playbooks [QUERY]` | List, search or read (`--show ID`) the fix playbooks |
+| `replay RUN --agent M:F` | Run your agent again on a recorded run |
+| `eval SUITE.py` | Evaluate and compare agent versions; exits 1 on a regression |
+| `evals [ID]` | List saved evaluation results, or show one |
+| `import FILE` | Load OTLP JSON, Langfuse, LangSmith or Agent Doctor JSON; `--redact` |
+| `validate FILE` | Check a trace file against the schema |
+| `pricing [-m MODEL]` | List prices, or show which price a model gets |
+| `mcp` | Run the MCP server over stdio |
+
+`agent-doctor --db PATH COMMAND` uses another trace database. Commands that compute cost
+take `--prices FILE` for extra prices, and `analyze` and `cost` take `--json`.
+
+## Development
+
+```bash
+git clone https://github.com/kushagra2304/agent-doctor.git && cd agent-doctor
+python -m venv .venv && source .venv/bin/activate    # Windows: .venv\Scripts\activate
+pip install -e ".[dev,hf]"
+pytest
+ruff check .
+```
+
+```
+src/agent_doctor/     the package
+tests/                unit and integration tests; fixtures/ holds the bad agent's runs
+examples/bad_agent/   demo agent with planted problems and an answer key
+examples/real_agent/  tool-calling agent on a real model, with an eval suite and findings
+space/                Gradio web UI for the demo (python space/sync.py, then python space/app.py)
+```
+
+`python -m examples.bad_agent.generate --check` verifies the fixtures are up to date.
+`agent_doctor.testing` provides simulated time and deterministic IDs for repeatable tests.
 
 ## Roadmap
 
-- [x] Phase 0: setup, schema, tests, CI
-- [x] Phase 1: SDK (`instrument()`, `@trace_run`, `@trace_tool`), SQLite store, pricing, cost CLI
-- [x] Phase 2: bad agent with 12 kinds of planted problems; 32 fixture runs with an answer key ([details](examples/bad_agent/README.md))
-- [x] Phase 3: 12 deterministic detectors, `analyze` and `scan`; 36/36 planted problems found, 0 false alarms
-- [x] Phase 4: MCP server with 11 read-only tools (`agent-doctor mcp`)
-- [x] Phase 5: replay (recorded tools, blocked side effects, model swaps) and evaluation suite (scorers, paired statistics, CI exit code)
-- [x] Phase 6: recommender (15 playbooks, deterministic retrieval, optional LLM write-up), OpenTelemetry / Langfuse / LangSmith importers, redaction, release workflow
-- [x] Checked on a real tool-calling agent (qwen2.5 on Ollama); fixed what it found
-- [x] Launch: published to PyPI as `agent-doctor-cli` 0.5.0
-- [ ] Hosted web demo (the Gradio app in `space/` is ready; Hugging Face now charges to host it)
-- [ ] Larger real-world study: more agents, models and production traffic
+- [x] Recording SDK, SQLite store, pricing, cost reports
+- [x] 12 detectors with an answer-key test (36/36, no false alarms)
+- [x] MCP server, replay, evals, recommender, importers, redaction
+- [x] Validated on a real tool-calling agent
+- [x] Published to PyPI
+- [ ] Hosted web demo
+- [ ] Validation on more agents, frameworks (LangGraph, OpenAI Agents SDK) and paid APIs
+
+See [CHANGELOG.md](CHANGELOG.md) for release notes.
 
 ## License
 
-MIT
+[MIT](LICENSE)
