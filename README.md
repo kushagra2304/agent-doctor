@@ -39,7 +39,6 @@ run_dc3352eba323  agent support-bot  ok  3.93 s  3 LLM / 6 tool calls  $0.0135
 - [Accuracy](#accuracy)
 - [Command reference](#command-reference)
 - [Development](#development)
-- [Roadmap](#roadmap)
 
 ## Features
 
@@ -366,16 +365,6 @@ space/                Gradio web UI for the demo (python space/sync.py, then pyt
 
 `python -m examples.bad_agent.generate --check` verifies the fixtures are up to date.
 `agent_doctor.testing` provides simulated time and deterministic IDs for repeatable tests.
-
-## Roadmap
-
-- [x] Recording SDK, SQLite store, pricing, cost reports
-- [x] 12 detectors with an answer-key test (36/36, no false alarms)
-- [x] MCP server, replay, evals, recommender, importers, redaction
-- [x] Validated on a real tool-calling agent
-- [x] Published to PyPI
-- [ ] Hosted web demo
-- [ ] Validation on more agents, frameworks (LangGraph, OpenAI Agents SDK) and paid APIs
 
 See [CHANGELOG.md](CHANGELOG.md) for release notes.
 
