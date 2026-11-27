@@ -101,6 +101,22 @@ def test_swallowed_failure_needs_ok_status():
     assert "swallowed_tool_failure" not in kinds(b.run(status="error"))
 
 
+def test_failure_the_answer_admits_is_not_swallowed():
+    """Found on a real agent: telling the user the data is unavailable is the right behaviour."""
+    b = B()
+    b.tool("get_tracking", {"order_id": "1234"}, {"eta": "Friday"})
+    b.tool("get_tracking", {"order_id": "9012"}, error=True)
+    b.llm(prompt="tracking timed out", output_text="Tracking for 9012 is temporarily unavailable.")
+    assert "swallowed_tool_failure" not in kinds(b.run())
+
+    b = B()
+    b.tool("get_tracking", {"order_id": "1234"}, {"eta": "Friday"})
+    b.tool("get_tracking", {"order_id": "9012"}, error=True)
+    b.llm(prompt="tracking timed out", output_text="Order 9012 arrives in 3-5 days.")
+    (f,) = [f for f in analyze_run(b.run(), PRICES).findings if f.data["kind"] == "swallowed_tool_failure"]
+    assert f.title.startswith("get_tracking(order_id=9012) never succeeded")  # it worked for 1234
+
+
 def test_dependent_calls_are_not_parallelizable():
     b = B()
     b.tool("get_user", {"id": "u1"}, {"email": "asha@example.com"}, dur=800)

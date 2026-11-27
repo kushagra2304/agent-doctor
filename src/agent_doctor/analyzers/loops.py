@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 from agent_doctor.analyzers.base import Context
 from agent_doctor.schema import Finding, FindingType, Severity, Span
 
@@ -116,8 +118,19 @@ def no_progress_loops(ctx: Context) -> list[Finding]:
     )]
 
 
+_ADMITS_FAILURE = re.compile(
+    r"unavailable|not available|unable to|couldn'?t|could not|can'?t (?:get|access|check|find|retrieve)|"
+    r"cannot (?:get|access|check|find|retrieve)|temporarily|try again|having (?:trouble|issues)|"
+    r"(?:is|was|are) down\b|not working|an? (?:error|issue|problem) (?:with|on|in)", re.I)
+
+
+def _args_label(span: Span) -> str:
+    args = span.tool_args or {}
+    return ", ".join(f"{k}={v}" for k, v in list(args.items())[:3])
+
+
 def swallowed_failures(ctx: Context) -> list[Finding]:
-    """A tool never succeeded, yet the run finished 'ok' with an answer."""
+    """A tool never succeeded, yet the run finished 'ok' with an answer that does not say so."""
     if ctx.run.status.value != "ok":
         return []
     findings = []
@@ -131,13 +144,19 @@ def swallowed_failures(ctx: Context) -> list[Finding]:
         answer = [s for s in ctx.ok_llm if s.start_ms >= last.end_ms]
         if recovered or not answer:
             continue
+        final = ctx.run.final_output or answer[-1].output_text or ""
+        if _ADMITS_FAILURE.search(final):
+            continue  # the agent told the user the data was unavailable: honest, not swallowed
+        # Name the arguments when the tool worked for others, so the title stays true.
+        worked_elsewhere = any(s.name == name and not s.is_error for s in ctx.tools)
+        label = f"{name}({_args_label(last)})" if worked_elsewhere and last.tool_args else name
         findings.append(ctx.finding(
             type=FindingType.ERROR,
             severity=Severity.HIGH,
-            title=f"{name} never succeeded, but the agent answered anyway",
-            detail=(f"All {len(chain)} call(s) to {name} failed (steps {ctx.steps(chain)}), and the "
-                    f"run still ended 'ok' with an answer from step {ctx.steps([answer[-1]])}. The "
-                    f"answer may be a guess."),
+            title=f"{label} never succeeded, but the agent answered anyway",
+            detail=(f"All {len(chain)} call(s) to {label} failed (steps {ctx.steps(chain)}), and the "
+                    f"run still ended 'ok' with an answer from step {ctx.steps([answer[-1]])} that "
+                    f"does not mention the failure. The answer may be a guess."),
             suggestion=(f"When {name} fails, tell the model explicitly (or the user) instead of "
                         "letting it answer without the data; mark the run as degraded."),
             evidence=[*chain, answer[-1]],
