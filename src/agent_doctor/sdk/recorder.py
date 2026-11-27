@@ -17,11 +17,19 @@ from agent_doctor.store import TraceStore, get_default_store
 
 _active_run: ContextVar[RunRecorder | None] = ContextVar("agent_doctor_run", default=None)
 _active_parent: ContextVar[str | None] = ContextVar("agent_doctor_parent", default=None)
+# Set by agent_doctor.replay while a replay is running. Typed loosely so the SDK never
+# imports the replay package; see ReplaySession for the methods used here.
+_active_replay: ContextVar[Any] = ContextVar("agent_doctor_replay", default=None)
 
 
 def current_run() -> RunRecorder | None:
     """The run being recorded right now, or None."""
     return _active_run.get()
+
+
+def current_replay() -> Any:
+    """The active replay session, or None."""
+    return _active_replay.get()
 
 
 def current_parent_id() -> str | None:
@@ -117,7 +125,21 @@ class RunRecorder:
         except Exception as e:  # a bug here must not break the user's agent
             warn_once(f"build:{type(e).__name__}", f"could not build run {self.run_id}: {e}")
             return None
+        if config.redaction_enabled():
+            try:
+                from agent_doctor.ingest.redact import Redactor
+
+                run = Redactor().run(run)
+            except Exception as e:  # never save unredacted data when redaction was asked for
+                warn_once(f"redact:{type(e).__name__}", f"could not redact run {self.run_id}, not saved: {e}")
+                return None
         self.run = run
+        session = _active_replay.get()
+        if session is not None:
+            try:
+                session.on_run_finished(run)
+            except Exception as e:
+                warn_once(f"replay:{type(e).__name__}", f"replay could not capture run {self.run_id}: {e}")
         if self.save and config.recording_enabled():
             try:
                 (self.store or get_default_store()).save_run(run)

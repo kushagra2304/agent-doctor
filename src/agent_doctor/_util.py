@@ -129,3 +129,38 @@ def pick(obj: Any, path: str, default: Any = None) -> Any:
             return default
         cur = nxt
     return default if cur is None else cur
+
+
+def import_path(path: Any) -> Any:
+    """Import a .py file. A file inside a package (folders with __init__.py) is imported by
+    its dotted name, so its relative imports work; the folder above the package goes on
+    sys.path, as pytest does."""
+    import importlib
+    import importlib.util
+    import sys
+    from pathlib import Path
+
+    path = Path(path).resolve()
+    if not path.is_file():
+        raise FileNotFoundError(f"no such file: {path}")
+    parts = [path.stem]
+    root = path.parent
+    while (root / "__init__.py").is_file():
+        parts.insert(0, root.name)
+        root = root.parent
+    if len(parts) > 1:
+        if str(root) not in sys.path:
+            sys.path.insert(0, str(root))
+        return importlib.import_module(".".join(parts))
+    name = f"_agent_doctor_user_{path.stem}"
+    spec = importlib.util.spec_from_file_location(name, path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"cannot import {path}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    sys.path.insert(0, str(path.parent))
+    try:
+        spec.loader.exec_module(module)
+    finally:
+        sys.path.remove(str(path.parent))
+    return module

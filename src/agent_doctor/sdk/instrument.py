@@ -24,6 +24,7 @@ from agent_doctor.sdk.recorder import (
     RunRecorder,
     Timer,
     current_parent_id,
+    current_replay,
     current_run,
     error_fields,
 )
@@ -88,12 +89,33 @@ def instrument(
     return client
 
 
+def _swap_model(settings: dict, kwargs: dict) -> tuple[dict, str | None]:
+    """Apply the active replay's model_map. Returns the new kwargs and the replaced model."""
+    session = current_replay()
+    model_map = getattr(session, "model_map", None)
+    if not model_map:
+        return kwargs, None
+    model = kwargs.get("model") or settings["default_model"]
+    new = model_map.get(model)
+    if not new or new == model:
+        return kwargs, None
+    return {**kwargs, "model": new}, model
+
+
+def _begin(settings: dict, args: tuple, kwargs: dict) -> tuple[_LLMCall | None, dict]:
+    kwargs, replaced = _swap_model(settings, kwargs)
+    call = _LLMCall.begin(settings, args, kwargs)
+    if call is not None and replaced:
+        call.extra["replaced_model"] = replaced
+    return call, kwargs
+
+
 def _wrap(original: Any, settings: dict) -> Any:
     if inspect.iscoroutinefunction(original):
 
         @functools.wraps(original)
         async def awrapper(*args, **kwargs):
-            call = _LLMCall.begin(settings, args, kwargs)
+            call, kwargs = _begin(settings, args, kwargs)
             if call is None:
                 return await original(*args, **kwargs)
             try:
@@ -110,7 +132,7 @@ def _wrap(original: Any, settings: dict) -> Any:
 
     @functools.wraps(original)
     def wrapper(*args, **kwargs):
-        call = _LLMCall.begin(settings, args, kwargs)
+        call, kwargs = _begin(settings, args, kwargs)
         if call is None:
             return original(*args, **kwargs)
         try:

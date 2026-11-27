@@ -6,6 +6,29 @@
 """
 
 from agent_doctor.analyzers.base import DEFAULT_THRESHOLDS, Context, Thresholds
-from agent_doctor.analyzers.report import DETECTORS, AnalysisReport, analyze_run
+from agent_doctor.analyzers.report import (
+    DETECTORS,
+    SEVERITY_RANK,
+    AnalysisReport,
+    ProblemStats,
+    RunDigest,
+    ScanReport,
+    analyze_run,
+    problem_name,
+    scan_reports,
+)
 
-__all__ = ["DEFAULT_THRESHOLDS", "DETECTORS", "AnalysisReport", "Context", "Thresholds", "analyze_run"]
+__all__ = [
+    "DEFAULT_THRESHOLDS",
+    "DETECTORS",
+    "SEVERITY_RANK",
+    "AnalysisReport",
+    "Context",
+    "ProblemStats",
+    "RunDigest",
+    "ScanReport",
+    "Thresholds",
+    "analyze_run",
+    "problem_name",
+    "scan_reports",
+]

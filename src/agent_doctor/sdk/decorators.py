@@ -16,6 +16,7 @@ from agent_doctor.sdk.recorder import (
     Timer,
     _active_parent,
     current_parent_id,
+    current_replay,
     current_run,
     error_fields,
     span,
@@ -140,18 +141,43 @@ class _ToolCall:
         self.token = _active_parent.set(self.span_id)
         self.timer = Timer()
 
-    def end(self, result: Any = None, exc: BaseException | None = None, capture: bool = True):
+    def end(self, result: Any = None, exc: BaseException | None = None, capture: bool = True,
+            attributes: dict[str, Any] | None = None):
         try:
             _active_parent.reset(self.token)
         except ValueError:
             _active_parent.set(self.parent)
+        attrs = dict(attributes or {})
+        if not capture:
+            attrs["output_captured"] = False  # so replay knows None is not the real output
         self.rec.add_span(
             span_id=self.span_id, parent_id=self.parent, kind=SpanKind.TOOL, name=self.tool_name,
             start_ms=self.timer.start_ms, end_ms=self.timer.end_ms(), tool_args=self.args,
             args_hash=self.args_hash, retry_of=self.retry_of, side_effects=self.side_effects,
             tool_output=to_jsonable(result) if (capture and exc is None) else None,
-            **error_fields(exc),
+            attributes=attrs, **error_fields(exc),
         )
+
+
+def _replay_plan(call: _ToolCall | None, sig, args, kwargs, tool_name: str, side_effects: bool):
+    """Ask the active replay session how to handle this call; None when not replaying."""
+    session = current_replay()
+    if session is None:
+        return None
+    args_hash = call.args_hash if call is not None else compute_args_hash(bound_args(sig, args, kwargs))
+    return session.plan_tool(tool_name, args_hash, side_effects)
+
+
+def _served(call: _ToolCall | None, plan: Any, f: Callable) -> Any:
+    """Answer a call from the replay plan (recorded output, recorded error or stub)."""
+    if plan.action == "error":
+        exc = plan.exception(f)
+        if call is not None:
+            call.end(exc=exc, attributes=plan.attributes)
+        raise exc
+    if call is not None:
+        call.end(plan.output, attributes=plan.attributes)
+    return plan.output
 
 
 def trace_tool(
@@ -164,7 +190,7 @@ def trace_tool(
     """Record each call of the decorated function as a tool span.
 
     ``side_effects=True`` marks tools that change the world (send email, write to a
-    database, take payment); replay will never call them live. A call with the same
+    database, take payment); replay and evaluation never call them live. A call with the same
     arguments as an earlier failed call is linked to it as a retry. Outside a run the
     function runs normally and nothing is recorded.
     """
@@ -188,14 +214,19 @@ def trace_tool(
             @functools.wraps(f)
             async def awrapper(*args, **kwargs):
                 call = begin(args, kwargs)
+                plan = _replay_plan(call, sig, args, kwargs, tool_name, side_effects)
+                if plan is not None and plan.action != "live":
+                    await plan.wait_async()
+                    return _served(call, plan, f)
                 if call is None:
                     return await f(*args, **kwargs)
+                attrs = plan.attributes if plan is not None else None
                 try:
                     result = await f(*args, **kwargs)
                 except BaseException as e:
-                    call.end(exc=e)
+                    call.end(exc=e, attributes=attrs)
                     raise
-                call.end(result, capture=capture_output)
+                call.end(result, capture=capture_output, attributes=attrs)
                 return result
 
             return awrapper  # type: ignore[return-value]
@@ -203,14 +234,19 @@ def trace_tool(
         @functools.wraps(f)
         def wrapper(*args, **kwargs):
             call = begin(args, kwargs)
+            plan = _replay_plan(call, sig, args, kwargs, tool_name, side_effects)
+            if plan is not None and plan.action != "live":
+                plan.wait()
+                return _served(call, plan, f)
             if call is None:
                 return f(*args, **kwargs)
+            attrs = plan.attributes if plan is not None else None
             try:
                 result = f(*args, **kwargs)
             except BaseException as e:
-                call.end(exc=e)
+                call.end(exc=e, attributes=attrs)
                 raise
-            call.end(result, capture=capture_output)
+            call.end(result, capture=capture_output, attributes=attrs)
             return result
 
         return wrapper  # type: ignore[return-value]

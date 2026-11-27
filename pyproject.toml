@@ -4,17 +4,23 @@ build-backend = "hatchling.build"
 
 [project]
 name = "agent-doctor"
-version = "0.2.0"
+version = "0.5.0"
 description = "Find out why your AI agent is expensive, slow or unreliable, and how to fix it."
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
 authors = [{ name = "Kushagra Sharma" }]
-keywords = ["llm", "agents", "observability", "mcp", "evaluation", "tracing"]
+keywords = ["llm", "agents", "observability", "mcp", "evaluation", "tracing", "opentelemetry",
+            "langfuse", "langsmith"]
 classifiers = [
+    "Development Status :: 4 - Beta",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
     "Intended Audience :: Developers",
     "Topic :: Software Development :: Debuggers",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 dependencies = [
     "pydantic>=2.6",
@@ -26,10 +32,20 @@ dependencies = [
 hf = [
     "huggingface_hub>=0.28",
 ]
+mcp = [
+    "mcp>=2.3,<3",
+]
 dev = [
+    "agent-doctor[mcp]",
     "pytest>=8.0",
     "ruff>=0.5",
 ]
+
+[project.urls]
+Homepage = "https://github.com/kushagra2304/agent-doctor"
+Source = "https://github.com/kushagra2304/agent-doctor"
+Issues = "https://github.com/kushagra2304/agent-doctor/issues"
+Changelog = "https://github.com/kushagra2304/agent-doctor/blob/main/CHANGELOG.md"
 
 [project.scripts]
 agent-doctor = "agent_doctor.cli:main"

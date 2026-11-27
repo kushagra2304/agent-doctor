@@ -27,7 +27,12 @@ DETECTORS: list[Detector] = [
     cost.prompt_cache_misses,
 ]
 
-_RANK = {Severity.HIGH: 0, Severity.MEDIUM: 1, Severity.LOW: 2, Severity.INFO: 3}
+SEVERITY_RANK = {Severity.HIGH: 0, Severity.MEDIUM: 1, Severity.LOW: 2, Severity.INFO: 3}
+
+
+def problem_name(f: Finding) -> str:
+    """Human name of the detector that produced a finding, e.g. 'exact duplicate tool call'."""
+    return str(f.data.get("kind", f.type.value)).replace("_", " ")
 
 
 class AnalysisReport(BaseModel):
@@ -68,8 +73,8 @@ class AnalysisReport(BaseModel):
             "estimated_waste": {"cost_usd": round(self.wasted_cost_usd, 6), "ms": self.wasted_ms,
                                 "tokens": self.wasted_tokens},
             "top_findings": [
-                {"severity": f.severity.value, "type": f.type.value, "title": f.title,
-                 "suggestion": f.suggestion,
+                {"severity": f.severity.value, "type": f.type.value, "problem": problem_name(f),
+                 "title": f.title, "detail": f.detail, "suggestion": f.suggestion,
                  "steps": [self.step_numbers.get(s) for s in f.evidence_span_ids],
                  "wasted_cost_usd": f.wasted_cost_usd, "wasted_ms": f.wasted_ms}
                 for f in self.findings[:max_findings]
@@ -91,7 +96,8 @@ def analyze_run(
         except Exception as e:  # one broken detector must not hide the others' results
             warnings.warn(f"agent-doctor: detector {detect.__name__} failed: {e}",
                           RuntimeWarning, stacklevel=2)
-    findings.sort(key=lambda f: (_RANK[f.severity], -(f.wasted_cost_usd or 0), -(f.wasted_ms or 0)))
+    findings.sort(key=lambda f: (SEVERITY_RANK[f.severity], -(f.wasted_cost_usd or 0),
+                                 -(f.wasted_ms or 0)))
     report = ctx.cost
     return AnalysisReport(
         run_id=run.run_id,
@@ -109,4 +115,67 @@ def analyze_run(
         wasted_ms=sum(f.wasted_ms or 0 for f in findings),
         wasted_tokens=sum(f.wasted_tokens or 0 for f in findings),
         step_numbers=ctx.step,
+    )
+
+
+class ProblemStats(BaseModel):
+    problem: str
+    worst_severity: Severity
+    runs: int = Field(description="How many runs have this problem.")
+    share: float = Field(description="Fraction of analyzed runs with this problem.")
+    wasted_cost_usd: float
+    wasted_ms: int
+    example_run_ids: list[str]
+
+
+class RunDigest(BaseModel):
+    run_id: str
+    findings: int
+    wasted_cost_usd: float
+    wasted_ms: int
+    top_finding: str
+
+
+class ScanReport(BaseModel):
+    runs_analyzed: int
+    runs_with_problems: int
+    total_cost_usd: float
+    problems: list[ProblemStats] = Field(description="Most serious, then most costly, first.")
+    worst_runs: list[RunDigest] = Field(description="Runs to look at first.")
+
+
+def scan_reports(reports: list[AnalysisReport], worst: int = 5, examples: int = 3) -> ScanReport:
+    """Which problems are most common and most costly across many runs."""
+    stats: dict[str, ProblemStats] = {}
+    run_ids: dict[str, list[str]] = {}
+    for rep in reports:
+        for f in rep.findings:
+            name = problem_name(f)
+            st = stats.get(name)
+            if st is None:
+                st = stats[name] = ProblemStats(problem=name, worst_severity=f.severity, runs=0,
+                                                share=0.0, wasted_cost_usd=0.0, wasted_ms=0,
+                                                example_run_ids=[])
+            ids = run_ids.setdefault(name, [])
+            if rep.run_id not in ids:
+                ids.append(rep.run_id)
+            st.wasted_cost_usd += f.wasted_cost_usd or 0
+            st.wasted_ms += f.wasted_ms or 0
+            if SEVERITY_RANK[f.severity] < SEVERITY_RANK[st.worst_severity]:
+                st.worst_severity = f.severity
+    for name, st in stats.items():
+        st.runs = len(run_ids[name])
+        st.share = st.runs / len(reports)
+        st.example_run_ids = run_ids[name][:examples]
+    problems = sorted(stats.values(), key=lambda s: (SEVERITY_RANK[s.worst_severity], -s.wasted_cost_usd,
+                                                     -s.wasted_ms, -s.runs))
+    flagged = sorted((r for r in reports if r.findings),
+                     key=lambda r: (-r.wasted_cost_usd, -len(r.findings)))[:worst]
+    return ScanReport(
+        runs_analyzed=len(reports),
+        runs_with_problems=sum(1 for r in reports if r.findings),
+        total_cost_usd=sum(r.total_cost_usd for r in reports),
+        problems=problems,
+        worst_runs=[RunDigest(run_id=r.run_id, findings=len(r.findings), wasted_cost_usd=r.wasted_cost_usd,
+                              wasted_ms=r.wasted_ms, top_finding=r.findings[0].title) for r in flagged],
     )

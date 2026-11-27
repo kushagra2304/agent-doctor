@@ -3,18 +3,21 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 import typer
 from pydantic import ValidationError
 from rich.console import Console
+from rich.markup import escape
 from rich.table import Table
 
-from agent_doctor import __version__
-from agent_doctor.analyzers import AnalysisReport, analyze_run
+from agent_doctor import __version__, core
+from agent_doctor.analyzers import AnalysisReport, analyze_run, problem_name
 from agent_doctor.pricing import CostReport, PriceTable, estimate_cost
-from agent_doctor.schema import Finding, Run, Severity, SpanKind, SpanStatus
+from agent_doctor.schema import Run, Severity, SpanKind, SpanStatus
 from agent_doctor.store import AmbiguousRunId, RunNotFound, TraceStore, get_default_store
 
 app = typer.Typer(
@@ -134,13 +137,19 @@ def validate(path: Path = typer.Argument(..., help="Path to a run JSON file.")) 
 
 
 @app.command("import")
-def import_(paths: list[Path] = typer.Argument(..., help="Run JSON files (one run or a list).")) -> None:
-    """Load runs from JSON files into the trace database."""
+def import_(
+    paths: list[Path] = typer.Argument(..., help="Trace files: JSON or JSON lines."),
+    fmt: str = typer.Option("auto", "--format", "-f", help="auto, native, otel, langfuse or langsmith."),
+    redact: bool = typer.Option(False, "--redact", help="Scrub emails, phone numbers, cards, keys "
+                                "and tokens before saving."),
+) -> None:
+    """Load runs into the trace database: Agent Doctor JSON, OpenTelemetry (OTLP JSON),
+    Langfuse or LangSmith exports."""
     store = _store()
     total = 0
     for path in paths:
         try:
-            ids = store.import_json_file(path)
+            ids = core.import_runs(str(path), fmt, redact, store)  # type: ignore[arg-type]
         except (OSError, ValueError, ValidationError) as e:
             err.print(f"[red]error:[/red] {path}: {e}")
             raise typer.Exit(1) from None
@@ -326,10 +335,6 @@ _SEV_STYLE = {Severity.HIGH: "bold red", Severity.MEDIUM: "yellow", Severity.LOW
               Severity.INFO: "dim"}
 
 
-def _kind_label(f: Finding) -> str:
-    return str(f.data.get("kind", f.type.value)).replace("_", " ")
-
-
 def _waste(cost: float | None, ms: int | None, tokens: int | None = None) -> str:
     parts = []
     if cost:
@@ -368,7 +373,7 @@ def _print_analysis(report: AnalysisReport) -> None:
     console.print(table)
     console.print("[bold]How to fix[/bold]")
     for i, f in enumerate(report.findings, start=1):
-        console.print(f"{i}. [bold]{_kind_label(f).capitalize()}[/bold]: {f.suggestion}")
+        console.print(f"{i}. [bold]{problem_name(f).capitalize()}[/bold]: {f.suggestion}")
         console.print(f"   [dim]{f.detail}[/dim]")
 
 
@@ -395,48 +400,310 @@ def scan(
 ) -> None:
     """Analyze many runs and show which problems are most common and most costly."""
     store = _store()
-    rows = store.list_runs(agent=agent, limit=limit)
-    if not rows:
+    if not store.count_runs(agent):
         console.print(f"No runs in {store.path} yet.")
         return
-    prices = _prices(prices_file)
-    reports = [analyze_run(store.get_run(r.run_id), prices) for r in rows]
-    stats: dict[str, dict] = {}
-    for rep in reports:
-        for f in rep.findings:
-            st = stats.setdefault(_kind_label(f), {"runs": set(), "cost": 0.0, "ms": 0, "sev": f.severity})
-            st["runs"].add(rep.run_id)
-            st["cost"] += f.wasted_cost_usd or 0
-            st["ms"] += f.wasted_ms or 0
-            if _SEV_RANK[f.severity] < _SEV_RANK[st["sev"]]:
-                st["sev"] = f.severity
-    with_findings = sum(1 for r in reports if r.findings)
-    total_cost = sum(r.total_cost_usd for r in reports)
-    console.print(f"Analyzed {len(reports)} run(s): {with_findings} with problems, "
-                  f"{len(reports) - with_findings} clean. Total cost {fmt_usd(total_cost)}.")
-    if not stats:
+    report = core.scan(agent, limit, store, _prices(prices_file))
+    console.print(f"Analyzed {report.runs_analyzed} run(s): {report.runs_with_problems} with problems, "
+                  f"{report.runs_analyzed - report.runs_with_problems} clean. "
+                  f"Total cost {fmt_usd(report.total_cost_usd)}.")
+    if not report.problems:
         console.print("[green]No problems found.[/green]")
         return
     table = Table(title="Problems across runs", title_justify="left")
     for col, justify in [("Problem", "left"), ("Worst", "left"), ("Runs", "right"),
                          ("Share", "right"), ("Est. waste", "right"), ("Time lost", "right")]:
         table.add_column(col, justify=justify)  # type: ignore[arg-type]
-    for name, st in sorted(stats.items(), key=lambda kv: (_SEV_RANK[kv[1]["sev"]], -kv[1]["cost"],
-                                                         -kv[1]["ms"], -len(kv[1]["runs"]))):
-        table.add_row(name, f"[{_SEV_STYLE[st['sev']]}]{st['sev'].value}[/]", str(len(st["runs"])),
-                      f"{len(st['runs']) / len(reports):.0%}",
-                      f"~{fmt_usd(st['cost'])}" if st["cost"] else "-", fmt_ms(st["ms"]) if st["ms"] else "-")
+    for p in report.problems:
+        table.add_row(p.problem, f"[{_SEV_STYLE[p.worst_severity]}]{p.worst_severity.value}[/]",
+                      str(p.runs), f"{p.share:.0%}",
+                      f"~{fmt_usd(p.wasted_cost_usd)}" if p.wasted_cost_usd else "-",
+                      fmt_ms(p.wasted_ms) if p.wasted_ms else "-")
     console.print(table)
-    worst = sorted(reports, key=lambda r: (-r.wasted_cost_usd, -len(r.findings)))[:5]
     console.print("[bold]Runs to look at first[/bold]")
-    for r in worst:
-        if r.findings:
-            console.print(f"  {r.run_id}  {len(r.findings)} finding(s), est. waste "
-                          f"{_waste(r.wasted_cost_usd, r.wasted_ms)}: {r.findings[0].title}")
+    for r in report.worst_runs:
+        console.print(f"  {r.run_id}  {r.findings} finding(s), est. waste "
+                      f"{_waste(r.wasted_cost_usd, r.wasted_ms)}: {r.top_finding}")
     console.print("[dim]Details: agent-doctor analyze RUN_ID[/dim]")
 
 
-_SEV_RANK = {Severity.HIGH: 0, Severity.MEDIUM: 1, Severity.LOW: 2, Severity.INFO: 3}
+def _model_map(pairs: list[str]) -> dict[str, str]:
+    out = {}
+    for pair in pairs:
+        old, sep, new = pair.partition("=")
+        if not sep or not old or not new:
+            err.print(f"[red]error:[/red] --model expects OLD=NEW, got {pair!r}")
+            raise typer.Exit(2)
+        out[old] = new
+    return out
+
+
+def _delta(a: float, b: float, fmt: Callable[[Any], str]) -> str:
+    if a == b:
+        return "[dim]same[/dim]"
+    pct = f" ({(b - a) / a:+.0%})" if a else ""
+    sign, color = ("+", "red") if b > a else ("-", "green")
+    return f"[{color}]{sign}{fmt(abs(b - a))}{pct}[/{color}]"
+
+
+@app.command()
+def replay(
+    run_id: str = typer.Argument(..., help="Run ID, a unique prefix of it, or 'last'."),
+    agent: str = typer.Option(..., "--agent", help="module:function or file.py:function, "
+                              "called with the run's input."),
+    model: list[str] = typer.Option([], "--model", "-m", help="Swap a model: OLD=NEW (repeatable)."),
+    live_tools: bool = typer.Option(False, "--live-tools", help="Run tools live instead of "
+                                    "replaying recorded results (side-effect tools never run)."),
+    strict: bool = typer.Option(False, "--strict", help="Fail tool calls that were never recorded "
+                                "instead of running them live."),
+    no_latency: bool = typer.Option(False, "--no-latency", help="Answer recorded tool calls at once "
+                                    "instead of waiting as long as they took."),
+    save: bool = typer.Option(False, "--save", help="Save the new run to the trace database."),
+    as_json: bool = typer.Option(False, "--json", help="Print the result as JSON."),
+    prices_file: Path | None = PricesOpt,
+) -> None:
+    """Run your agent again on a saved run's input and compare the new run with the old one."""
+    from agent_doctor.replay import load_agent
+
+    run = _load_run(run_id)
+    try:
+        fn = load_agent(agent)
+    except Exception as e:
+        err.print(f"[red]error:[/red] could not load agent {agent!r}: {e}")
+        raise typer.Exit(2) from None
+    prices = _prices(prices_file)
+    models = _model_map(model)
+    result = core.replay(run, fn, _store(), model_map=models or None,
+                         tools="live" if live_tools else "recorded", on_miss="error" if strict else "live",
+                         tool_latency="none" if no_latency else "recorded", save=save)
+    diff = core.compare(run, result.run, prices=prices) if result.run is not None else None
+    if as_json:
+        console.print_json(json.dumps({
+            "original_run_id": run.run_id, "replay_run_id": result.run.run_id if result.run else None,
+            "output": result.output_text, "error": result.error, "tool_calls": result.tool_calls,
+            "comparison": diff.model_dump(mode="json") if diff else None,
+        }))
+        return
+    console.print(f"Replayed [bold]{run.run_id}[/bold] with {agent}"
+                  + (f", models {models}" if models else ""))
+    if result.tool_calls:
+        console.print("Tool calls: " + ", ".join(f"{n} {k}" for k, n in sorted(result.tool_calls.items())))
+    if result.error:
+        console.print(f"[red]The agent raised {result.error}[/red]")
+    console.print(f"[dim]before:[/dim] {(run.final_output or '')[:300]}")
+    same = (result.output_text or "") == (run.final_output or "")
+    console.print(f"[dim]after:[/dim]  {(result.output_text or '')[:300]}"
+                  + ("  [dim](same)[/dim]" if same else ""))
+    if diff is None:
+        raise typer.Exit(1)
+    a, b = diff.a, diff.b
+    table = Table(title="Before and after", title_justify="left")
+    for col in ["", "Before", "After", "Change"]:
+        table.add_column(col, justify="right" if col else "left")
+    rows = [("Duration", a.duration_ms, b.duration_ms, fmt_ms), ("LLM calls", a.llm_calls, b.llm_calls, str),
+            ("Tool calls", a.tool_calls, b.tool_calls, str), ("Errors", a.errors, b.errors, str),
+            ("Input tokens", a.input_tokens, b.input_tokens, fmt_int),
+            ("Output tokens", a.output_tokens, b.output_tokens, fmt_int)]
+    for label, x, y, f in rows:
+        table.add_row(label, f(x), f(y), _delta(x, y, f))
+    cost_known = a.cost_complete and b.cost_complete
+    table.add_row("Cost", fmt_usd(a.cost_usd) if a.cost_complete else "unpriced",
+                  fmt_usd(b.cost_usd) if b.cost_complete else "unpriced",
+                  _delta(a.cost_usd, b.cost_usd, fmt_usd) if cost_known else "-")
+    console.print(table)
+    if diff.problems_only_in_a:
+        console.print("[green]Fixed:[/green] " + ", ".join(diff.problems_only_in_a))
+    if diff.problems_only_in_b:
+        console.print("[red]New problems:[/red] " + ", ".join(diff.problems_only_in_b))
+    if diff.problems_in_both:
+        console.print("[yellow]Still there:[/yellow] " + ", ".join(diff.problems_in_both))
+    if save and result.run is not None:
+        console.print(f"Saved as {result.run.run_id}. Details: agent-doctor analyze {result.run.run_id}")
+
+
+def _knowledge(extra: list[Path]):
+    from agent_doctor.recommender import KnowledgeBase, default_knowledge_base
+
+    try:
+        return KnowledgeBase.load(*extra) if extra else default_knowledge_base()
+    except (OSError, ValueError, ValidationError) as e:
+        err.print(f"[red]error:[/red] could not load playbooks: {e}")
+        raise typer.Exit(2) from None
+
+
+PlaybooksOpt = typer.Option([], "--playbooks", help="Folder of your own playbooks (repeatable).")
+
+
+@app.command()
+def recommend(
+    run_id: str | None = typer.Argument(None, help="Run ID, prefix or 'last'. Omit to cover recent runs."),
+    agent: str | None = typer.Option(None, "--agent", "-a", help="Without RUN: only this agent's runs."),
+    limit: int = typer.Option(50, "--limit", "-n", min=1, help="Without RUN: how many recent runs."),
+    llm: str | None = typer.Option(None, "--llm", help="Also have an LLM write the plan: anthropic[:MODEL], "
+                                   "openai:MODEL or hf:MODEL."),
+    full: bool = typer.Option(False, "--full", help="Show each playbook's whole fix, with code."),
+    playbooks: list[Path] = PlaybooksOpt,
+    as_json: bool = typer.Option(False, "--json", help="Print the plan as JSON."),
+    prices_file: Path | None = PricesOpt,
+) -> None:
+    """Recommend fixes, ranked by how much waste they remove, from Agent Doctor's playbooks."""
+    from agent_doctor.recommender import llm_from_spec
+
+    kb = _knowledge(playbooks)
+    writer = None
+    if llm:
+        try:
+            writer = llm_from_spec(llm)
+        except (ImportError, ValueError) as e:
+            err.print(f"[red]error:[/red] {escape(str(e))}")
+            raise typer.Exit(2) from None
+    prices = _prices(prices_file)
+    try:
+        if run_id:
+            plan = core.recommend(_load_run(run_id), prices=prices, kb=kb, llm=writer)
+        else:
+            plan = core.recommend_for_runs(agent, limit, _store(), prices, kb=kb, llm=writer)
+    except Exception as e:  # the optional LLM call can fail in many provider-specific ways
+        if writer is None:
+            raise
+        err.print(f"[red]error:[/red] the LLM call failed: {type(e).__name__}: {e}")
+        raise typer.Exit(1) from None
+    if as_json:
+        console.print_json(plan.model_dump_json())
+        return
+    if not plan.recommendations:
+        console.print("[green]Nothing to fix: no problems found.[/green]" if not plan.unmatched
+                      else "No playbook covers these findings yet.")
+    else:
+        console.print(f"[bold]Fix plan for {plan.scope}[/bold]"
+                      + (f"  [dim](providers: {', '.join(plan.providers)})[/dim]" if plan.providers else ""))
+    for i, r in enumerate(plan.recommendations, start=1):
+        where = (f"steps {', '.join(f'#{s}' for s in r.steps)}" if r.steps
+                 else f"{len(r.runs)} run(s)")
+        console.print(f"\n{i}. [{_SEV_STYLE[r.severity]}]{r.title}[/]  [dim]{r.playbook_id}, effort "
+                      f"{r.effort}, est. waste {_waste(r.wasted_cost_usd, r.wasted_ms)}[/dim]")
+        console.print(f"   Fixes: {', '.join(r.problems)} ({where})")
+        fix = (r.fix if full else r.fix.split("\n\n")[0]).replace("**", "")
+        console.print("   " + fix.replace("\n", "\n   "), markup=False, highlight=False)
+        if r.verify:
+            verify = r.verify if full else " ".join(r.verify.split("\n\n")[0].split())
+            console.print("   Verify: " + verify.replace("\n", "\n   "), style="dim", markup=False,
+                          highlight=False)
+    if plan.unmatched:
+        console.print(f"\n[yellow]No playbook yet for:[/yellow] {'; '.join(plan.unmatched)}")
+    if plan.narrative:
+        console.print(f"\n[bold]Plan written by {llm}[/bold]")
+        console.print(plan.narrative, markup=False, highlight=False)
+    elif plan.recommendations and not full:
+        console.print("\n[dim]--full shows the code for each fix; --llm anthropic has an LLM write "
+                      "the plan.[/dim]")
+
+
+@app.command("playbooks")
+def playbooks_(
+    query: str | None = typer.Argument(None, help="Search text; omit to list every playbook."),
+    show: str | None = typer.Option(None, "--show", help="Print one playbook in full, by ID."),
+    playbooks: list[Path] = PlaybooksOpt,
+) -> None:
+    """List, search or read the fix playbooks the recommender uses."""
+    kb = _knowledge(playbooks)
+    if show:
+        book = kb.get(show)
+        if book is None:
+            err.print(f"[red]error:[/red] no playbook {show!r}. List them with: agent-doctor playbooks")
+            raise typer.Exit(1)
+        console.print(f"[bold]{book.title}[/bold]  [dim]{book.id}, fixes {', '.join(book.problems)}[/dim]")
+        console.print(book.body, markup=False, highlight=False)
+        return
+    rows = kb.search(query, limit=10) if query else [(b, None) for b in kb.playbooks]
+    table = Table(title=f"Playbooks matching {query!r}" if query else f"Playbooks ({len(kb.playbooks)})",
+                  title_justify="left")
+    for col in ["ID", "Title", "Fixes", "Providers", "Effort"]:
+        table.add_column(col)
+    for book, _score in rows:
+        table.add_row(book.id, book.title, ", ".join(book.problems), ", ".join(book.providers) or "any",
+                      book.effort)
+    console.print(table)
+    console.print("[dim]Read one: agent-doctor playbooks --show ID[/dim]")
+
+
+def _rate(x: float) -> str:
+    return f"{x:.0%}"
+
+
+@app.command("eval")
+def eval_(
+    suite_file: Path = typer.Argument(..., help="Python file that defines a Suite."),
+    variant: list[str] = typer.Option([], "--variant", "-v", help="Only these variants; the first is "
+                                      "the baseline (repeatable)."),
+    save: bool = typer.Option(False, "--save", help="Save replayed runs to the trace database."),
+    as_json: bool = typer.Option(False, "--json", help="Print the reports as JSON."),
+    prices_file: Path | None = PricesOpt,
+) -> None:
+    """Run an evaluation suite and compare each variant with the first one.
+
+    Exits with code 1 if any case that passed with the baseline fails with another variant.
+    """
+    from agent_doctor.evals import load_suite
+
+    try:
+        suite = load_suite(suite_file)
+    except Exception as e:
+        err.print(f"[red]error:[/red] could not load {suite_file}: {e}")
+        raise typer.Exit(2) from None
+    try:
+        reports, comparisons = suite.run(variant or None, save=save,
+                                         prices=_prices(prices_file) if prices_file else None)
+    except ValueError as e:
+        err.print(f"[red]error:[/red] {e}")
+        raise typer.Exit(2) from None
+    regressed = any(c.regressed for c in comparisons)
+    if as_json:
+        console.print_json(json.dumps({"suite": suite.name,
+                                       "reports": [r.model_dump(mode="json") for r in reports],
+                                       "comparisons": [c.model_dump(mode="json") for c in comparisons]}))
+        raise typer.Exit(1 if regressed else 0)
+
+    table = Table(title=f"{suite.name}: {len(reports[0].results)} case(s)", title_justify="left")
+    scorer_names = list(dict.fromkeys(s.name for r in reports for s in r.scorers))
+    for col in ["Variant", "Pass", *scorer_names, "Errors", "Cost", "Mean time", "p95", "Problems"]:
+        table.add_column(col, justify="left" if col == "Variant" else "right")
+    for r in reports:
+        by_name = {s.name: s for s in r.scorers}
+        cost = fmt_usd(r.total_cost_usd) if r.cost_complete else f"{fmt_usd(r.total_cost_usd)}+"
+        table.add_row(r.name, _rate(r.pass_rate),
+                      *[_rate(by_name[s].pass_rate) if s in by_name else "-" for s in scorer_names],
+                      str(r.errors), cost, fmt_ms(int(r.mean_ms)), fmt_ms(int(r.p95_ms)),
+                      str(sum(r.problems.values())))
+    console.print(table)
+    for c, rep in zip(comparisons, reports[1:], strict=True):
+        color = {"better": "green", "worse": "red", "mixed": "yellow", "same": "dim"}[c.verdict]
+        console.print(f"[bold]{c.candidate}[/bold] vs {c.baseline}: [{color}]{c.verdict}[/{color}]. "
+                      f"{c.headline}")
+        for case_id in c.regressed[:10]:
+            res = rep.result(case_id)
+            failed = [s.name + (f" ({s.reason})" if s.reason else "") for s in res.scores if not s.passed]
+            console.print(f"  [red]broke[/red] {case_id}: {'; '.join(failed)[:200]}")
+        for case_id in c.improved[:10]:
+            console.print(f"  [green]fixed[/green] {case_id}")
+        if c.problems_new:
+            console.print("  [red]new problems:[/red] "
+                          + ", ".join(f"{k} (+{v})" for k, v in c.problems_new.items()))
+    raise typer.Exit(1 if regressed else 0)
+
+
+@app.command()
+def mcp(prices_file: Path | None = PricesOpt) -> None:
+    """Run the MCP server over stdio, for Claude, Cursor and other MCP clients."""
+    try:
+        from agent_doctor.mcp_server import create_server
+    except ImportError:
+        err.print("[red]error:[/red] the MCP server needs the 'mcp' extra: "
+                  'pip install "agent-doctor\\[mcp]"')
+        raise typer.Exit(1) from None
+    if prices_file is not None:
+        _prices(prices_file)  # fail now with a clear message, not on the first tool call
+    create_server(_store(), prices_file).run("stdio")
 
 
 def main() -> None:
