@@ -8,7 +8,7 @@ all of this as MCP tools, so you can ask Claude or Cursor *"why was run_482 so
 expensive?"* and get a real answer. A replay engine lets you test a new prompt
 or model against saved runs before you deploy.
 
-> Status: **0.5.0, ready for a first release**. Recording, cost, problem detection, fix plans, the MCP server, replay, evaluation and importers from other tracing tools all work.
+> Status: **0.5.0, [on PyPI](https://pypi.org/project/agent-doctor-cli/)**. Recording, cost, problem detection, fix plans, the MCP server, replay, evaluation and importers from other tracing tools all work.
 
 ## Install
 
@@ -18,8 +18,9 @@ pip install "agent-doctor-cli[mcp]"       # plus the MCP server for Claude, Curs
 pip install "agent-doctor-cli[mcp,hf]"    # plus Hugging Face InferenceClient support
 ```
 
-In Python, import it as `agent_doctor`. Try it in the browser first: the
-[Hugging Face Space](space/README.md) runs the demo with no install.
+In Python, import it as `agent_doctor`. To see it work before touching your own code, load
+the [bad agent](examples/bad_agent/README.md)'s 32 demo runs from a clone of this repo
+(`python -m examples.bad_agent.generate --save`) and run `agent-doctor scan`.
 
 ## Quick start (development)
 
@@ -108,6 +109,11 @@ estimates the wasted cost, time or tokens. All thresholds live in
 **Graded against an answer key.** On the [bad agent](examples/bad_agent/README.md)'s 32
 runs the detectors find all 36 planted problems with no false alarms on the clean runs:
 `python -m examples.bad_agent.score`.
+
+**Checked on a real model.** The [real agent](examples/real_agent/README.md) is a
+tool-calling agent on qwen2.5 (free, on a local Ollama) with nothing planted. Every finding
+was checked by hand against the traces; the write-up covers what Agent Doctor got right and
+the three bugs this turned up (all fixed).
 
 ## Get a fix plan
 
@@ -272,6 +278,41 @@ worse. Sending large-model calls to the small model (`model_map`) cuts cost by 9
 replays keep the recorded environment, so the tracking API that was down is still down, and
 those two answers stay wrong.
 
+## Use it on your real agent
+
+1. **Record real traffic.** Add `instrument()` and the decorators (see
+   [Record your agent](#record-your-agent)) and run your agent as usual: in production, in
+   staging, or over a list of real user questions. Runs go to `~/.agent-doctor/traces.db`.
+
+   | Environment variable | Use |
+   | --- | --- |
+   | `AGENT_DOCTOR_DB` | Where to save runs, e.g. one database per service or environment |
+   | `AGENT_DOCTOR_REDACT=1` | Scrub emails, phone and card numbers, keys and tokens before saving |
+   | `AGENT_DOCTOR_DISABLED=1` | Turn recording off without changing code |
+   | `AGENT_DOCTOR_PRICING` | Your own price file, if your models are not in the built-in table |
+
+   Already tracing with OpenTelemetry, Langfuse or LangSmith? Export the traces and
+   `agent-doctor import` them instead.
+
+2. **Find the problems.** `agent-doctor scan -n 500` ranks problems by how common and
+   costly they are; `agent-doctor analyze RUN` explains one run step by step.
+
+3. **Fix them.** `agent-doctor recommend` gives the plan, with code and a way to verify
+   each fix.
+
+4. **Prove the fix before you ship it.** Turn the recorded runs into eval cases
+   (`cases_from_runs`), add scorers for what "correct" means for your agent, and run
+   `agent-doctor eval` with the old and new versions. The
+   [real agent's suite](examples/real_agent/eval_suite.py) is a complete example: it
+   compares two prompts and two models on recorded customer questions.
+
+5. **Keep watching.** Scan new runs regularly, or ask Claude or Cursor about them through
+   the MCP server.
+
+Detectors find waste and failures; they do not judge whether an answer is *right*. On the
+real agent the scan was clean while 2 of 10 answers were wrong. Answer quality is what
+`eval` with your own scorers is for, so use both.
+
 ## Testing your own agent
 
 `agent_doctor.testing` gives you simulated time (`simulated_time()`, `sleep()`) and
@@ -334,10 +375,13 @@ are easy to spot. Tools with `side_effects=True` are never called live during re
 - [x] Phase 1: SDK (`instrument()`, `@trace_run`, `@trace_tool`), SQLite store, pricing, cost CLI
 - [x] Phase 2: bad agent with 12 kinds of planted problems; 32 fixture runs with an answer key ([details](examples/bad_agent/README.md))
 - [x] Phase 3: 12 deterministic detectors, `analyze` and `scan`; 36/36 planted problems found, 0 false alarms
-- [x] Phase 4: MCP server with 7 read-only tools (`agent-doctor mcp`)
+- [x] Phase 4: MCP server with 11 read-only tools (`agent-doctor mcp`)
 - [x] Phase 5: replay (recorded tools, blocked side effects, model swaps) and evaluation suite (scorers, paired statistics, CI exit code)
-- [x] Phase 6: recommender (15 playbooks, deterministic retrieval, optional LLM write-up), OpenTelemetry / Langfuse / LangSmith importers, redaction, Hugging Face Space demo, release workflow
-- [ ] Launch: publish to PyPI and the Space
+- [x] Phase 6: recommender (15 playbooks, deterministic retrieval, optional LLM write-up), OpenTelemetry / Langfuse / LangSmith importers, redaction, release workflow
+- [x] Checked on a real tool-calling agent (qwen2.5 on Ollama); fixed what it found
+- [x] Launch: published to PyPI as `agent-doctor-cli` 0.5.0
+- [ ] Hosted web demo (the Gradio app in `space/` is ready; Hugging Face now charges to host it)
+- [ ] Larger real-world study: more agents, models and production traffic
 
 ## License
 
