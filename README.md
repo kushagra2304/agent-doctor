@@ -13,9 +13,9 @@ or model against saved runs before you deploy.
 ## Install
 
 ```bash
-pip install agentdoctor               # the package is "agentdoctor"; the command is agent-doctor
-pip install "agentdoctor[mcp]"        # plus the MCP server for Claude, Cursor and other clients
-pip install "agentdoctor[mcp,hf]"     # plus Hugging Face InferenceClient support
+pip install agent-doctor-cli              # the package is "agent-doctor-cli"; the command is agent-doctor
+pip install "agent-doctor-cli[mcp]"       # plus the MCP server for Claude, Cursor and other clients
+pip install "agent-doctor-cli[mcp,hf]"    # plus Hugging Face InferenceClient support
 ```
 
 In Python, import it as `agent_doctor`. Try it in the browser first: the
@@ -153,7 +153,7 @@ Add your own patterns with `agent_doctor.ingest.Redactor(extra=[("ORDER", r"ORD-
 ## Ask Claude or Cursor about your runs (MCP)
 
 ```bash
-pip install "agentdoctor[mcp]"
+pip install "agent-doctor-cli[mcp]"
 claude mcp add agent-doctor -- agent-doctor mcp      # Claude Code
 ```
 

@@ -18,7 +18,8 @@ on a local Ollama):
 
 ## 0.5.0
 
-First public release, on PyPI as `agentdoctor` (the name `agent-doctor` was already taken).
+First public release, on PyPI as `agent-doctor-cli` (PyPI treats `agentdoctor` as the same name
+as the existing `agent-doctor`).
 The command is still `agent-doctor` and the import is still `agent_doctor`.
 
 - **Recommender**: `agent-doctor recommend [RUN]` turns findings into a ranked fix plan from a

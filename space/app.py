@@ -177,7 +177,7 @@ def eval_view() -> tuple[str, list[list[Any]]]:
 INTRO = """# Agent Doctor
 Find out why your AI agent is expensive, slow or unreliable, and how to fix it.
 Twelve deterministic detectors (no LLM calls) find the problems; fixes come from a library
-of playbooks. `pip install agentdoctor` to use it on your own agent, from the CLI or from
+of playbooks. `pip install agent-doctor-cli` to use it on your own agent, from the CLI or from
 Claude and Cursor over MCP."""
 
 

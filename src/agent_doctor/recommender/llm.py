@@ -71,7 +71,7 @@ def _openai(model: str) -> LLM:
 
 
 def _huggingface(model: str) -> LLM:
-    hub = _need("huggingface_hub", '"agentdoctor[hf]"')
+    hub = _need("huggingface_hub", '"agent-doctor-cli[hf]"')
     client = hub.InferenceClient(model=model)
 
     def complete(prompt: str) -> str:
