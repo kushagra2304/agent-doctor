@@ -19,7 +19,7 @@ from agent_doctor.store import TraceStore  # noqa: E402
 
 BAD_AGENT_RUNS = Path(__file__).parent / "fixtures" / "bad_agent" / "runs.json"
 TOOLS = {"list_runs", "analyze_run", "explain_cost", "show_run", "get_step", "scan_runs", "compare_runs",
-         "recommend_fixes", "search_playbooks"}
+         "recommend_fixes", "search_playbooks", "list_evals", "get_eval"}
 
 
 @pytest.fixture
@@ -169,3 +169,40 @@ def test_cli_serves_over_stdio(sample_path, tmp_path, prices_file):
     assert not result.is_error, result.content
     assert result.structured_content["run_id"] == "run_482"
     assert result.structured_content["cost_complete"] is True
+
+
+def _saved_eval(store):
+    from agent_doctor.evals import CaseResult, Score, compare_reports
+    from agent_doctor.evals.runner import summarize
+
+    def result(case_id, passed, answer):
+        return CaseResult(case_id=case_id, output_text=answer, run_id=f"r-{case_id}", error=None,
+                          cost_usd=0.01, cost_complete=True, duration_ms=100, llm_calls=1, tool_calls=0,
+                          scores=[Score(name="exact_match", value=float(passed), passed=passed,
+                                        reason="" if passed else "expected 'Friday'")],
+                          passed=passed, problems=[])
+
+    base = summarize("v1", [result("a", True, "Friday"), result("b", True, "Monday")])
+    cand = summarize("v2", [result("a", False, "Saturday"), result("b", True, "Monday")])
+    return core.save_eval("support-bot", [base, cand], [compare_reports(base, cand)], store)
+
+
+def test_saved_evals_over_mcp(store):
+    server = create_server(store)
+    assert "list_evals" in error_text(server, "get_eval")  # nothing saved yet
+    rec = _saved_eval(store)
+    listed = ok(server, "list_evals")["evals"]
+    assert listed[0]["eval_id"] == rec.eval_id and "v2 vs v1: worse (1 broken)" == listed[0]["result"]
+
+    out = ok(server, "get_eval")
+    assert out["eval_id"] == rec.eval_id and [v["name"] for v in out["versions"]] == ["v1", "v2"]
+    assert out["versions"][1]["scorers"] == {"exact_match": 0.5}
+    comparison = out["comparisons"][0]
+    assert comparison["verdict"] == "worse" and comparison["regressed"] == ["a"]
+    assert comparison["cases"] == 2 and "changed_cases" not in comparison
+
+    out = ok(server, "get_eval", eval_id=rec.eval_id[:12], include_cases=True)
+    (broke,) = out["comparisons"][0]["changed_cases"]
+    assert broke["change"] == "broke" and broke["baseline"]["answer"] == "Friday"
+    assert broke["candidate"]["answer"] == "Saturday"
+    assert broke["candidate"]["failed"] == ["exact_match: expected 'Friday'"]

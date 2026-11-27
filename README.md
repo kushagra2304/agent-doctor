@@ -173,7 +173,7 @@ Add `"--prices", "path/to/pricing.yaml"` after `"mcp"` for extra prices, or `"--
 before it for another database. Then ask things like *"why was the last run so expensive?"*
 or *"what problems does support-bot have most often?"*.
 
-The server has nine read-only tools. They never change your data or call your agent:
+The server has eleven read-only tools. They never change your data or call your agent:
 
 | Tool | Answers |
 | --- | --- |
@@ -186,6 +186,8 @@ The server has nine read-only tools. They never change your data or call your ag
 | `compare_runs` | Why did this run cost or take more than that one? |
 | `recommend_fixes` | How do I fix it? The playbooks that remove the most waste, with code and how to verify |
 | `search_playbooks` | Find a fix playbook by topic, e.g. "prompt caching with Claude" |
+| `list_evals` | Which evaluations have been run, and what was each verdict? |
+| `get_eval` | Did the new prompt or model break anything? Pass rates, cost, latency, and the broken and fixed cases with both answers |
 
 ## Test a change before you deploy
 
@@ -248,6 +250,11 @@ version. The comparison pairs results case by case: which cases broke, which got
 an exact McNemar test that says whether the difference could be chance. **The command exits
 with code 1 if any case that passed before fails now**, so it can gate a deploy in CI.
 
+Every evaluation is saved (`--no-record` to skip): `agent-doctor evals` lists them and
+`agent-doctor evals last` shows one again. Over MCP, ask Claude or Cursor *"did the last
+eval break anything?"* and it reads the result, including both versions' answers for each
+broken case.
+
 Built-in scorers: `exact_match`, `contains`, `matches` (regex), `similarity` (word overlap),
 `completed`, `no_problems`, `max_cost`, `max_latency`. Write your own with `@scorer`:
 
@@ -279,6 +286,7 @@ The [bad agent](examples/bad_agent/README.md) uses them to build the fixtures.
 | `agent-doctor scan` | Problems across many runs, most serious and costly first |
 | `agent-doctor replay RUN --agent M:F` | Run your agent again on a saved run, tools answered from the recording |
 | `agent-doctor eval SUITE.py` | Evaluate and compare agent versions; exits 1 if any case regressed |
+| `agent-doctor evals [ID]` | List saved evaluation results, or show one again |
 | `agent-doctor mcp` | Run the MCP server over stdio (needs the `mcp` extra) |
 | `agent-doctor runs` | List recent runs with duration, calls, errors, tokens and cost |
 | `agent-doctor show RUN` | Every step of a run as a tree, with retries, errors and cached tokens |

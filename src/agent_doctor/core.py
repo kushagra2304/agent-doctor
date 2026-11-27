@@ -7,7 +7,7 @@ logic of its own. Functions are added phase by phase:
 - Phase 3: analyze, analyze_runs
 - Phase 4: scan, compare
 - Phase 5: replay, evaluate, compare_variants
-- Phase 6: recommend, recommend_for_runs, import_runs
+- Phase 6: recommend, recommend_for_runs, import_runs, save_eval, get_eval, list_evals
 """
 
 from __future__ import annotations
@@ -27,6 +27,7 @@ from agent_doctor.analyzers.compare import RunComparison, compare_runs
 from agent_doctor.evals import Comparison, EvalCase, EvalReport, Variant
 from agent_doctor.evals import compare as _compare_variants
 from agent_doctor.evals import evaluate as _evaluate
+from agent_doctor.evals.results import EvalRecord, load_results, save_results
 from agent_doctor.evals.scorers import Scorer
 from agent_doctor.ingest import Format, Redactor, load_runs
 from agent_doctor.pricing import CostReport, PriceTable
@@ -37,7 +38,7 @@ from agent_doctor.recommender.recommend import LLM
 from agent_doctor.replay import ReplayResult
 from agent_doctor.replay import replay as _replay
 from agent_doctor.schema import Run
-from agent_doctor.store import StoredRun, TraceStore, get_default_store
+from agent_doctor.store import StoredEval, StoredRun, TraceStore, get_default_store
 
 
 def _store(store: TraceStore | None) -> TraceStore:
@@ -190,3 +191,22 @@ def import_runs(
     for run in runs:
         s.save_run(run)
     return [r.run_id for r in runs]
+
+
+def save_eval(
+    suite: str, reports: list[EvalReport], comparisons: list[Comparison], store: TraceStore | None = None
+) -> EvalRecord:
+    """Save an evaluation's results so they can be listed and read back later (and over MCP)."""
+    return save_results(suite, reports, comparisons, _store(store))
+
+
+def get_eval(eval_id: str = "last", store: TraceStore | None = None) -> EvalRecord:
+    """A saved evaluation by ID, unique prefix, or ``last``."""
+    return load_results(eval_id, _store(store))
+
+
+def list_evals(
+    suite: str | None = None, limit: int = 20, store: TraceStore | None = None
+) -> list[StoredEval]:
+    """Saved evaluations, most recent first."""
+    return _store(store).list_evals(suite, limit)

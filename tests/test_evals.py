@@ -10,6 +10,7 @@ from agent_doctor import trace_run, trace_tool
 from agent_doctor.cli import app
 from agent_doctor.evals import (
     Attempt,
+    CaseResult,
     EvalCase,
     Score,
     Variant,
@@ -274,3 +275,46 @@ def test_cli_replay(tmp_path, sample_path):
     assert runner.invoke(app, ["--db", db, "replay", "last", "--agent", "nope:x"]).exit_code == 2
     assert runner.invoke(app, ["--db", db, "replay", "last", "--agent", f"{agent_file}:handle",
                                "-m", "bad"]).exit_code == 2
+
+
+def test_saved_eval_results_store_and_cli(tmp_path):
+    from agent_doctor import core
+    from agent_doctor.store import EvalNotFound, TraceStore
+
+    store = TraceStore(tmp_path / "e.db")
+    with pytest.raises(EvalNotFound):
+        core.get_eval("last", store)
+    a = summarize("a", [CaseResult(case_id="c", output_text="x", run_id="r", error=None, cost_usd=0,
+                                   cost_complete=True, duration_ms=1, llm_calls=0, tool_calls=0,
+                                   scores=[], passed=True, problems=[])])
+    first = core.save_eval("suite-one", [a], [], store)
+    second = core.save_eval("suite-two", [a, a], [compare_reports(a, a)], store)
+    assert first.headline == "a: 100% pass" and second.headline == "a vs a: same"
+    assert [e.eval_id for e in core.list_evals(store=store)] == [second.eval_id, first.eval_id]
+    assert [e.suite for e in core.list_evals("suite-one", store=store)] == ["suite-one"]
+    loaded = core.get_eval(first.eval_id[:12], store)  # a unique prefix works too
+    assert loaded.reports == [a] and loaded.suite == "suite-one"
+    assert core.get_eval("last", store).eval_id == second.eval_id
+
+    db = str(tmp_path / "e.db")
+    r = runner.invoke(app, ["--db", db, "evals"])
+    assert r.exit_code == 0 and second.eval_id in r.stdout and "suite-two" in r.stdout
+    r = runner.invoke(app, ["--db", db, "evals", second.eval_id])
+    assert r.exit_code == 0 and "a vs a: same" in r.stdout
+    assert runner.invoke(app, ["--db", db, "evals", "nope"]).exit_code == 1
+
+
+def test_cli_eval_records_results(tmp_path):
+    suite_file = tmp_path / "suite.py"
+    suite_file.write_text(textwrap.dedent("""
+        from agent_doctor.evals import EvalCase, Suite, scorers
+        suite = Suite(name="tiny", cases=[EvalCase(id="a", input="hi", expected="hello")],
+                      scorers=[scorers.exact_match()], variants={"only": lambda q: "hello"})
+    """))
+    db = str(tmp_path / "t.db")
+    r = runner.invoke(app, ["--db", db, "eval", str(suite_file), "--json"])
+    assert r.exit_code == 0 and json.loads(r.stdout)["eval_id"].startswith("eval_")
+    r = runner.invoke(app, ["--db", db, "eval", str(suite_file), "--no-record"])
+    assert r.exit_code == 0 and "Saved as" not in r.stdout
+    r = runner.invoke(app, ["--db", db, "evals", "--json"])
+    assert len(json.loads(r.stdout)) == 1  # --no-record saved nothing

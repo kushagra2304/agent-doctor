@@ -18,7 +18,13 @@ from agent_doctor import __version__, core
 from agent_doctor.analyzers import AnalysisReport, analyze_run, problem_name
 from agent_doctor.pricing import CostReport, PriceTable, estimate_cost
 from agent_doctor.schema import Run, Severity, SpanKind, SpanStatus
-from agent_doctor.store import AmbiguousRunId, RunNotFound, TraceStore, get_default_store
+from agent_doctor.store import (
+    AmbiguousRunId,
+    EvalNotFound,
+    RunNotFound,
+    TraceStore,
+    get_default_store,
+)
 
 app = typer.Typer(
     no_args_is_help=True,
@@ -637,6 +643,8 @@ def eval_(
     variant: list[str] = typer.Option([], "--variant", "-v", help="Only these variants; the first is "
                                       "the baseline (repeatable)."),
     save: bool = typer.Option(False, "--save", help="Save replayed runs to the trace database."),
+    record: bool = typer.Option(True, "--record/--no-record", help="Save the results so `agent-doctor "
+                                "evals` and the MCP server can show them later."),
     as_json: bool = typer.Option(False, "--json", help="Print the reports as JSON."),
     prices_file: Path | None = PricesOpt,
 ) -> None:
@@ -649,22 +657,29 @@ def eval_(
     try:
         suite = load_suite(suite_file)
     except Exception as e:
-        err.print(f"[red]error:[/red] could not load {suite_file}: {e}")
+        err.print(f"[red]error:[/red] could not load {suite_file}: {escape(str(e))}")
         raise typer.Exit(2) from None
     try:
         reports, comparisons = suite.run(variant or None, save=save,
                                          prices=_prices(prices_file) if prices_file else None)
     except ValueError as e:
-        err.print(f"[red]error:[/red] {e}")
+        err.print(f"[red]error:[/red] {escape(str(e))}")
         raise typer.Exit(2) from None
     regressed = any(c.regressed for c in comparisons)
+    record_id = core.save_eval(suite.name, reports, comparisons, _store()).eval_id if record else None
     if as_json:
-        console.print_json(json.dumps({"suite": suite.name,
+        console.print_json(json.dumps({"suite": suite.name, "eval_id": record_id,
                                        "reports": [r.model_dump(mode="json") for r in reports],
                                        "comparisons": [c.model_dump(mode="json") for c in comparisons]}))
         raise typer.Exit(1 if regressed else 0)
+    _print_eval(suite.name, reports, comparisons)
+    if record_id:
+        console.print(f"[dim]Saved as {record_id}. Show it again: agent-doctor evals {record_id}[/dim]")
+    raise typer.Exit(1 if regressed else 0)
 
-    table = Table(title=f"{suite.name}: {len(reports[0].results)} case(s)", title_justify="left")
+
+def _print_eval(suite_name: str, reports: list, comparisons: list) -> None:
+    table = Table(title=f"{suite_name}: {len(reports[0].results)} case(s)", title_justify="left")
     scorer_names = list(dict.fromkeys(s.name for r in reports for s in r.scorers))
     for col in ["Variant", "Pass", *scorer_names, "Errors", "Cost", "Mean time", "p95", "Problems"]:
         table.add_column(col, justify="left" if col == "Variant" else "right")
@@ -676,20 +691,61 @@ def eval_(
                       str(r.errors), cost, fmt_ms(int(r.mean_ms)), fmt_ms(int(r.p95_ms)),
                       str(sum(r.problems.values())))
     console.print(table)
-    for c, rep in zip(comparisons, reports[1:], strict=True):
+    by_variant = {r.name: r for r in reports}
+    for c in comparisons:
+        rep = by_variant[c.candidate]
         color = {"better": "green", "worse": "red", "mixed": "yellow", "same": "dim"}[c.verdict]
         console.print(f"[bold]{c.candidate}[/bold] vs {c.baseline}: [{color}]{c.verdict}[/{color}]. "
-                      f"{c.headline}")
+                      f"{escape(c.headline)}")
         for case_id in c.regressed[:10]:
             res = rep.result(case_id)
             failed = [s.name + (f" ({s.reason})" if s.reason else "") for s in res.scores if not s.passed]
-            console.print(f"  [red]broke[/red] {case_id}: {'; '.join(failed)[:200]}")
+            console.print(f"  [red]broke[/red] {case_id}: {escape('; '.join(failed)[:200])}")
         for case_id in c.improved[:10]:
             console.print(f"  [green]fixed[/green] {case_id}")
         if c.problems_new:
             console.print("  [red]new problems:[/red] "
                           + ", ".join(f"{k} (+{v})" for k, v in c.problems_new.items()))
-    raise typer.Exit(1 if regressed else 0)
+
+
+@app.command()
+def evals(
+    eval_id: str | None = typer.Argument(None, help="Saved evaluation ID, a prefix, or 'last'. "
+                                         "Omit to list them."),
+    suite: str | None = typer.Option(None, "--suite", "-s", help="Only this suite's evaluations."),
+    limit: int = typer.Option(20, "--limit", "-n", min=1, help="How many to list."),
+    as_json: bool = typer.Option(False, "--json", help="Print as JSON."),
+) -> None:
+    """List saved evaluation results, or show one again."""
+    store = _store()
+    if eval_id is None:
+        rows = core.list_evals(suite, limit, store)
+        if as_json:
+            console.print_json(json.dumps([r.__dict__ for r in rows]))
+            return
+        if not rows:
+            console.print("No saved evaluations yet. Run one with: agent-doctor eval SUITE.py")
+            return
+        table = Table(title="Saved evaluations", title_justify="left")
+        for col in ["ID", "Suite", "When", "Result"]:
+            table.add_column(col, no_wrap=col == "ID")
+        for r in rows:
+            table.add_row(r.eval_id, r.suite, fmt_time(r.created_ms), escape(r.headline))
+        console.print(table)
+        return
+    try:
+        rec = core.get_eval(eval_id, store)
+    except AmbiguousRunId as e:
+        err.print(f"[red]error:[/red] {e.args[0]}")
+        raise typer.Exit(1) from None
+    except EvalNotFound:
+        err.print(f"[red]error:[/red] no saved evaluation {eval_id!r}. List them with: agent-doctor evals")
+        raise typer.Exit(1) from None
+    if as_json:
+        console.print_json(rec.model_dump_json())
+        return
+    console.print(f"[bold]{rec.eval_id}[/bold]  suite [bold]{rec.suite}[/bold]  {fmt_time(rec.created_ms)}")
+    _print_eval(rec.suite, rec.reports, rec.comparisons)
 
 
 @app.command()

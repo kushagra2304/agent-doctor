@@ -21,7 +21,7 @@ from agent_doctor import __version__, core
 from agent_doctor._util import to_jsonable
 from agent_doctor.pricing import PriceTable
 from agent_doctor.schema import Run, Span, SpanKind
-from agent_doctor.store import AmbiguousRunId, RunNotFound, TraceStore, get_default_store
+from agent_doctor.store import AmbiguousRunId, EvalNotFound, RunNotFound, TraceStore, get_default_store
 
 INSTRUCTIONS = """\
 Agent Doctor answers questions about recorded AI agent runs: why a run was expensive,
@@ -36,6 +36,8 @@ Typical flow: list_runs -> analyze_run (problems and fixes) -> explain_cost (whe
 went) -> get_step (look at the evidence). Use scan_runs for patterns across many runs and
 compare_runs to explain why one run differs from another. For how to fix something, use
 recommend_fixes (or search_playbooks) and base your advice on the playbooks it returns.
+To answer "did the new prompt or model break anything?", use list_evals and get_eval: they
+show saved evaluation results, including which test cases broke or got fixed.
 """
 
 READ_ONLY = ToolAnnotations(read_only_hint=True, destructive_hint=False, idempotent_hint=True,
@@ -70,6 +72,9 @@ def _tool_errors() -> Iterator[None]:
         raise ToolError(f"{e.args[0]}. Use a longer prefix.") from None
     except RunNotFound as e:
         raise ToolError(f"No run {e.args[0]!r}. Call list_runs to see the available run IDs.") from None
+    except EvalNotFound as e:
+        raise ToolError(f"No saved evaluation {e.args[0]!r}. Call list_evals to see them; evaluations "
+                        "are saved by `agent-doctor eval`.") from None
     except (OSError, ValueError, ValidationError) as e:
         raise ToolError(str(e)) from None
 
@@ -276,6 +281,57 @@ def create_server(store: TraceStore | None = None, prices_file: Path | None = No
         return {"query": query, "playbooks": [
             {"id": b.id, "title": b.title, "fixes": b.problems, "providers": b.providers or ["any"],
              "effort": b.effort, "body": b.body} for b, _ in hits]}
+
+    @server.tool(annotations=READ_ONLY)
+    def list_evals(
+        suite: Annotated[str | None, Field(description="Only this suite's evaluations.")] = None,
+        limit: Annotated[int, Field(ge=1, le=200, description="How many, newest first.")] = 20,
+    ) -> dict[str, Any]:
+        """List saved evaluation results (from `agent-doctor eval`), newest first, each with a
+        one-line verdict per compared version."""
+        with _tool_errors():
+            rows = core.list_evals(suite, limit, db())
+            return {"evals": [{"eval_id": r.eval_id, "suite": r.suite, "created": _iso(r.created_ms),
+                               "result": r.headline} for r in rows]}
+
+    @server.tool(annotations=READ_ONLY)
+    def get_eval(
+        eval_id: Annotated[str, Field(description='Saved evaluation ID, a prefix, or "last".')] = "last",
+        include_cases: Annotated[bool, Field(description="Also return the broken and fixed test cases, "
+                                             "with both versions' answers.")] = False,
+    ) -> dict[str, Any]:
+        """One saved evaluation: pass rates, cost, latency and problems per version, and for each
+        comparison the verdict, significance, and which test cases broke or got fixed."""
+        with _tool_errors():
+            rec = core.get_eval(eval_id, db())
+            by_name = {r.name: r for r in rec.reports}
+            out: dict[str, Any] = {
+                "eval_id": rec.eval_id, "suite": rec.suite, "created": _iso(rec.created_ms),
+                "versions": [{
+                    "name": r.name, "cases": len(r.results), "pass_rate": round(r.pass_rate, 4),
+                    "scorers": {s.name: round(s.pass_rate, 4) for s in r.scorers}, "errors": r.errors,
+                    "total_cost_usd": round(r.total_cost_usd, 6), "cost_complete": r.cost_complete,
+                    "mean_ms": round(r.mean_ms), "p95_ms": round(r.p95_ms), "problems": r.problems,
+                } for r in rec.reports],
+                "comparisons": [c.model_dump(mode="json") for c in rec.comparisons],
+            }
+            if include_cases:
+                def case(report_name: str, case_id: str) -> dict[str, Any]:
+                    res = by_name[report_name].result(case_id)
+                    if res is None:
+                        return {}
+                    return _compact({"answer": to_jsonable(res.output_text, 300), "error": res.error,
+                                     "failed": [f"{s.name}: {s.reason}" if s.reason else s.name
+                                                for s in res.scores if not s.passed],
+                                     "run_id": res.run_id, "problems": res.problems})
+
+                for c in out["comparisons"]:
+                    changes = (("broke", c["regressed"]), ("fixed", c["improved"]))
+                    c["changed_cases"] = [{"case_id": cid, "change": change,
+                                           "baseline": case(c["baseline"], cid),
+                                           "candidate": case(c["candidate"], cid)}
+                                          for change, ids in changes for cid in ids[:20]]
+            return out
 
     return server
 

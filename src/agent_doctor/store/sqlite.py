@@ -56,6 +56,15 @@ CREATE TABLE IF NOT EXISTS spans (
 );
 CREATE INDEX IF NOT EXISTS idx_spans_tool ON spans(name, args_hash);
 
+CREATE TABLE IF NOT EXISTS evals (
+    eval_id    TEXT PRIMARY KEY,
+    suite      TEXT NOT NULL,
+    created_ms INTEGER NOT NULL,
+    headline   TEXT NOT NULL,
+    eval_json  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_evals_created ON evals(suite, created_ms);
+
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
 """
 
@@ -82,12 +91,26 @@ class StoredRun:
     task_input: str | None
 
 
+@dataclass(frozen=True)
+class StoredEval:
+    """One row of ``list_evals``: a saved evaluation without its full results."""
+
+    eval_id: str
+    suite: str
+    created_ms: int
+    headline: str
+
+
 class RunNotFound(KeyError):
     pass
 
 
-class AmbiguousRunId(KeyError):
+class EvalNotFound(KeyError):
     pass
+
+
+class AmbiguousRunId(KeyError):
+    """An ID prefix that matches several runs (or several saved evaluations)."""
 
 
 class TraceStore:
@@ -161,23 +184,27 @@ class TraceStore:
             if not recent:
                 raise RunNotFound(run_id_or_prefix)
             return recent[0].run_id
+        return self._resolve("runs", "run_id", run_id_or_prefix, RunNotFound, "runs")
+
+    def _resolve(self, table: str, column: str, value: str, not_found: type[KeyError], what: str) -> str:
+        """A full ID or a unique prefix of one."""
         with self._lock:
             exact = self._conn.execute(
-                "SELECT run_id FROM runs WHERE run_id = ?", (run_id_or_prefix,)
+                f"SELECT {column} FROM {table} WHERE {column} = ?", (value,)
             ).fetchone()
             if exact:
-                return exact["run_id"]
-            pattern = run_id_or_prefix.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+                return exact[column]
+            pattern = value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
             rows = self._conn.execute(
-                "SELECT run_id FROM runs WHERE run_id LIKE ? ESCAPE '\\' LIMIT 6",
+                f"SELECT {column} FROM {table} WHERE {column} LIKE ? ESCAPE '\\' LIMIT 6",
                 (pattern + "%",),
             ).fetchall()
         if not rows:
-            raise RunNotFound(run_id_or_prefix)
+            raise not_found(value)
         if len(rows) > 1:
-            ids = ", ".join(r["run_id"] for r in rows[:5])
-            raise AmbiguousRunId(f"{run_id_or_prefix!r} matches several runs: {ids}")
-        return rows[0]["run_id"]
+            ids = ", ".join(r[column] for r in rows[:5])
+            raise AmbiguousRunId(f"{value!r} matches several {what}: {ids}")
+        return rows[0][column]
 
     def list_runs(
         self, agent: str | None = None, limit: int = 20, offset: int = 0
@@ -212,6 +239,41 @@ class TraceStore:
                 "SELECT DISTINCT agent_name FROM runs ORDER BY agent_name"
             ).fetchall()
         return [r["agent_name"] for r in rows]
+
+    # -- evaluation results -----------------------------------------------------
+    def save_eval(self, eval_id: str, suite: str, headline: str, data: dict) -> None:
+        """Save one evaluation's results (any JSON-serializable dict)."""
+        with self._lock, self._conn:
+            self._conn.execute(
+                "INSERT OR REPLACE INTO evals VALUES (?, ?, ?, ?, ?)",
+                (eval_id, suite, now_ms(), headline, json.dumps(data)),
+            )
+
+    def list_evals(self, suite: str | None = None, limit: int = 20) -> list[StoredEval]:
+        """Most recent first."""
+        sql, params = "SELECT eval_id, suite, created_ms, headline FROM evals", []
+        if suite:
+            sql += " WHERE suite = ?"
+            params.append(suite)
+        sql += " ORDER BY created_ms DESC, rowid DESC LIMIT ?"
+        with self._lock:
+            rows = self._conn.execute(sql, [*params, limit]).fetchall()
+        return [StoredEval(**dict(r)) for r in rows]
+
+    def get_eval(self, eval_id_or_prefix: str) -> tuple[StoredEval, dict]:
+        """A saved evaluation by full ID, unique prefix, or ``last``."""
+        if eval_id_or_prefix.lower() in {"last", "latest"}:
+            recent = self.list_evals(limit=1)
+            if not recent:
+                raise EvalNotFound(eval_id_or_prefix)
+            eval_id = recent[0].eval_id
+        else:
+            eval_id = self._resolve("evals", "eval_id", eval_id_or_prefix, EvalNotFound, "evaluations")
+        with self._lock:
+            row = self._conn.execute("SELECT * FROM evals WHERE eval_id = ?", (eval_id,)).fetchone()
+        meta = StoredEval(eval_id=row["eval_id"], suite=row["suite"], created_ms=row["created_ms"],
+                          headline=row["headline"])
+        return meta, json.loads(row["eval_json"])
 
     # -- import helpers ---------------------------------------------------------
     def import_json_file(self, path: str | Path) -> list[str]:

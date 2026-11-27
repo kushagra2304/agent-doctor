@@ -9,6 +9,7 @@
 
 from agent_doctor.evals import scorers
 from agent_doctor.evals.cases import EvalCase, cases_from_runs, load_cases, save_cases
+from agent_doctor.evals.results import EvalRecord, load_results, save_results
 from agent_doctor.evals.runner import (
     RECORDED,
     CaseResult,
@@ -30,6 +31,7 @@ __all__ = [
     "CaseResult",
     "Comparison",
     "EvalCase",
+    "EvalRecord",
     "EvalReport",
     "Score",
     "ScorerComparison",
@@ -41,8 +43,10 @@ __all__ = [
     "compare_reports",
     "evaluate",
     "load_cases",
+    "load_results",
     "load_suite",
     "save_cases",
+    "save_results",
     "scorer",
     "scorers",
 ]

@@ -14,7 +14,9 @@ The command is still `agent-doctor` and the import is still `agent_doctor`.
   Langfuse and LangSmith exports, as well as Agent Doctor JSON.
 - **Redaction**: `--redact` on import, or `AGENT_DOCTOR_REDACT=1` while recording, scrubs
   emails, phone numbers, card numbers, API keys, tokens and IP addresses.
-- **MCP**: new `recommend_fixes` and `search_playbooks` tools.
+- **Saved evaluations**: `agent-doctor eval` saves its results; `agent-doctor evals [ID]`
+  lists or shows them.
+- **MCP**: new `recommend_fixes`, `search_playbooks`, `list_evals` and `get_eval` tools.
 - **Hugging Face Space** demo in `space/`.
 
 ## 0.4.0
