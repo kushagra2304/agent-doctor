@@ -95,13 +95,17 @@ def trace_run(
                 store=store, save=save,
             )
 
+        def adopt(active: RunRecorder) -> None:  # inside a replay: label the replayed run
+            active.adopt(name, agent_version=agent_version, prompt_version=prompt_version, tags=tags)
+
         if inspect.iscoroutinefunction(f):
 
             @functools.wraps(f)
             async def awrapper(*args, **kwargs):
                 if not config.recording_enabled():
                     return await f(*args, **kwargs)
-                if current_run() is not None:
+                if (active := current_run()) is not None:
+                    adopt(active)
                     async with span(name):
                         return await f(*args, **kwargs)
                 async with make_recorder(args, kwargs) as rec:
@@ -115,7 +119,8 @@ def trace_run(
         def wrapper(*args, **kwargs):
             if not config.recording_enabled():
                 return f(*args, **kwargs)
-            if current_run() is not None:
+            if (active := current_run()) is not None:
+                adopt(active)
                 with span(name):
                     return f(*args, **kwargs)
             with make_recorder(args, kwargs) as rec:

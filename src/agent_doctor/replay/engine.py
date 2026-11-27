@@ -243,6 +243,7 @@ def replay(
     task_input = run.task_input if run is not None else str(args[0]) if args else ""
     outer = RunRecorder(run.agent_name if run is not None else getattr(agent, "__name__", "agent"),
                         task_input=task_input, save=False)
+    outer.adopts_metadata = True
     output: Any = None
     error: str | None = None
     token = _active_replay.set(session)

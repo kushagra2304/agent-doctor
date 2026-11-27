@@ -1,0 +1,6 @@
+# Models running on your own machine (Ollama and similar) cost nothing per token.
+# Use with: agent-doctor --db examples/real_agent/traces.db scan --prices examples/real_agent/local_pricing.yaml
+models:
+  - {match: "qwen2.5:*", provider: local, input: 0.0, output: 0.0}
+  - {match: "qwen3:*", provider: local, input: 0.0, output: 0.0}
+  - {match: "llama3.*", provider: local, input: 0.0, output: 0.0}

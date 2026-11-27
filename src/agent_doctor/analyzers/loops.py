@@ -121,7 +121,9 @@ def no_progress_loops(ctx: Context) -> list[Finding]:
 _ADMITS_FAILURE = re.compile(
     r"unavailable|not available|unable to|couldn'?t|could not|can'?t (?:get|access|check|find|retrieve)|"
     r"cannot (?:get|access|check|find|retrieve)|temporarily|try again|having (?:trouble|issues)|"
-    r"(?:is|was|are) down\b|not working|an? (?:error|issue|problem) (?:with|on|in)", re.I)
+    r"(?:is|was|are) down\b|not working|an? (?:error|issue|problem) (?:with|on|in)|"
+    r"timed? ?out|time-out|(?:still|currently) pending|no (?:information|update)s? (?:yet|available)",
+    re.I)
 
 
 def _args_label(span: Span) -> str:

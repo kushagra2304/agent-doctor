@@ -216,6 +216,27 @@ def test_comparison_verdicts_and_problem_counts():
     assert compare_reports(base, base).verdict == "same"
     with pytest.raises(ValueError, match="no cases in common"):
         compare_reports(base, summarize("e", [result("zz", True)]))
+    assert "; s:" not in cmp.headline  # the only scorer moved with the overall result: no repeat
+
+
+def test_regression_in_one_scorer_is_not_hidden_by_another():
+    """Found on a real agent: every case failed 'replied_once', so overall pass/fail never moved
+    and the comparison said 'same' while correctness fell from 70% to 50%."""
+    def result(case_id, correct):
+        scores = [Score(name="correct", value=float(correct), passed=correct),
+                  Score(name="replied_once", value=0.0, passed=False)]
+        return CaseResult(case_id=case_id, output_text="", run_id="r", error=None, cost_usd=0,
+                          cost_complete=True, duration_ms=100, llm_calls=1, tool_calls=0,
+                          scores=scores, passed=False, problems=[])
+
+    base = summarize("v1", [result(f"q{i}", i < 7) for i in range(10)])
+    cand = summarize("v2", [result(f"q{i}", i < 4 or i == 9) for i in range(10)])
+    cmp = compare_reports(base, cand)
+    assert cmp.verdict == "same" and cmp.regressed == []
+    (correct,) = [s for s in cmp.scorers if s.name == "correct"]
+    assert correct.regressed == ["q4", "q5", "q6"] and correct.improved == ["q9"]
+    assert "correct: 1 fixed, 3 broken (70% -> 50%)" in cmp.headline
+    assert "replied_once" not in cmp.headline
 
 
 # -- the bad agent's suite ---------------------------------------------------------------

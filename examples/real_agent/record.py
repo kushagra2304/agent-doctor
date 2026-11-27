@@ -1,9 +1,11 @@
 """Record the real agent answering every question, into its own trace database.
 
-From the repository root (needs a Hugging Face login: hf auth login):
+From the repository root, with a free local model (Ollama, then: ollama pull qwen2.5:3b):
 
-    python -m examples.real_agent.record
-    agent-doctor --db examples/real_agent/traces.db scan
+    AD_BASE_URL=http://localhost:11434/v1 python -m examples.real_agent.record
+    agent-doctor --db examples/real_agent/traces.db scan --prices examples/real_agent/local_pricing.yaml
+
+Or leave AD_BASE_URL unset to use Hugging Face Inference Providers (hf auth login).
 """
 
 from __future__ import annotations

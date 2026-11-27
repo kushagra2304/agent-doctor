@@ -93,6 +93,19 @@ class RunRecorder:
         self._lock = threading.Lock()
         self._timer: Timer | None = None
         self._tokens: list[Token] = []
+        # Set by replay on its outer run, so the agent's own @trace_run labels still apply.
+        self.adopts_metadata = False
+
+    def adopt(self, agent: str, *, agent_version: str | None = None, prompt_version: str | None = None,
+              tags: dict[str, Any] | None = None) -> None:
+        """Take the labels of the first @trace_run that runs inside this (replay) run."""
+        if not self.adopts_metadata:
+            return
+        self.adopts_metadata = False
+        self.agent = agent
+        self.agent_version = agent_version or self.agent_version
+        self.prompt_version = prompt_version or self.prompt_version
+        self.tags = {**self.tags, **(tags or {})}
 
     # -- lifecycle --------------------------------------------------------------
     def start(self) -> RunRecorder:

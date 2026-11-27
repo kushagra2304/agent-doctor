@@ -198,6 +198,27 @@ def test_model_map_swaps_models_without_code_changes(store, monkeypatch):
     assert run.llm_spans[0].model == "big-model"
 
 
+def test_replayed_run_keeps_the_agents_labels(store, monkeypatch):
+    """Found on a real agent: a v2 replay was saved with no prompt_version, so v1 and v2 runs
+    could not be told apart."""
+    monkeypatch.setattr("agent_doctor.sdk.recorder.get_default_store", lambda: store)
+    client = instrument(FakeHFClient([chat_response("hi"), chat_response("hi")], model="m"))
+
+    def make(version):
+        @trace_run(agent="chat-bot", agent_version="2.0", prompt_version=version, tags={"team": "support"})
+        def agent(q):
+            return client.chat_completion(messages=[{"role": "user", "content": q}])["choices"][0][
+                "message"]["content"]
+        return agent
+
+    run = record(make("v1"), "hello", store)
+    with simulated_time():
+        result = replay(run, make("v2"), label="v2")
+    assert [s.prompt_version for s in result.run.llm_spans] == ["v2"]
+    assert result.run.agent_name == "chat-bot" and result.run.agent_version == "2.0"
+    assert result.run.tags == {"team": "support", "replay_of": run.run_id, "replay_label": "v2"}
+
+
 def test_agent_with_its_own_recorder_and_saving(store, monkeypatch):
     monkeypatch.setattr("agent_doctor.sdk.recorder.get_default_store", lambda: store)
     world = World()

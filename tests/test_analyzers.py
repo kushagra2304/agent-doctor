@@ -108,6 +108,11 @@ def test_failure_the_answer_admits_is_not_swallowed():
     b.tool("get_tracking", {"order_id": "9012"}, error=True)
     b.llm(prompt="tracking timed out", output_text="Tracking for 9012 is temporarily unavailable.")
     assert "swallowed_tool_failure" not in kinds(b.run())
+    b = B()  # qwen2.5:1.5b's actual answer
+    b.tool("get_tracking", {"order_id": "9012"}, error=True)
+    b.llm(prompt="tracking timed out", output_text="The order 9012 has been packed. Unfortunately, the "
+          "tracking information for Ekart has timed out. The estimated delivery date is still pending.")
+    assert "swallowed_tool_failure" not in kinds(b.run())
 
     b = B()
     b.tool("get_tracking", {"order_id": "1234"}, {"eta": "Friday"})

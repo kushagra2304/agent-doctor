@@ -199,6 +199,8 @@ class ScorerComparison(BaseModel):
     mean_diff: float
     mean_diff_ci95: tuple[float, float]
     p_value: float = Field(description="Exact McNemar test on pass/fail; small means a real difference.")
+    improved: list[str] = Field(default_factory=list, description="Cases this scorer now passes.")
+    regressed: list[str] = Field(default_factory=list, description="Cases this scorer now fails.")
 
 
 class Comparison(BaseModel):
@@ -241,6 +243,9 @@ def compare_reports(baseline: EvalReport, candidate: EvalReport, alpha: float = 
         if not both:
             continue
         diffs = [sb.value - sa.value for sa, sb in both]
+        ids = [a.case_id for a, b in pairs if a.score(n) and b.score(n)]
+        s_improved = [i for i, (sa, sb) in zip(ids, both, strict=True) if not sa.passed and sb.passed]
+        s_regressed = [i for i, (sa, sb) in zip(ids, both, strict=True) if sa.passed and not sb.passed]
         scorer_rows.append(ScorerComparison(
             name=n, cases=len(both),
             baseline_pass_rate=stats.mean([float(sa.passed) for sa, _ in both]),
@@ -248,8 +253,8 @@ def compare_reports(baseline: EvalReport, candidate: EvalReport, alpha: float = 
             baseline_mean=stats.mean([sa.value for sa, _ in both]),
             candidate_mean=stats.mean([sb.value for _, sb in both]),
             mean_diff=stats.mean(diffs), mean_diff_ci95=stats.bootstrap_ci(diffs),
-            p_value=stats.mcnemar_p(sum(1 for sa, sb in both if sa.passed and not sb.passed),
-                                    sum(1 for sa, sb in both if not sa.passed and sb.passed)),
+            p_value=stats.mcnemar_p(len(s_regressed), len(s_improved)),
+            improved=s_improved, regressed=s_regressed,
         ))
 
     ran = [(a, b) for a, b in pairs if a.run_id and b.run_id]
@@ -277,12 +282,20 @@ def compare_reports(baseline: EvalReport, candidate: EvalReport, alpha: float = 
         "better": f"{len(improved)} case(s) fixed, none broken",
         "worse": f"{len(regressed)} case(s) broken, none fixed",
         "mixed": f"{len(improved)} case(s) fixed, {len(regressed)} broken",
-        "same": "same pass/fail on every case",
+        "same": "same overall pass/fail on every case",
     }
     headline = parts[verdict]
     if verdict != "same":
         chance = "significant" if significant else "could be chance"
         headline += f" (p={p:.3f}, {chance} with {len(pairs)} cases)"
+    # A case fails overall if any scorer fails it, so one scorer that fails everywhere hides
+    # what the others did. Say what each scorer gained or lost.
+    for row in scorer_rows:
+        if (row.improved or row.regressed) and (row.improved, row.regressed) != (improved, regressed):
+            moves = [f"{len(row.improved)} fixed" if row.improved else "",
+                     f"{len(row.regressed)} broken" if row.regressed else ""]
+            headline += (f"; {row.name}: {', '.join(m for m in moves if m)} "
+                         f"({row.baseline_pass_rate:.0%} -> {row.candidate_pass_rate:.0%})")
     for label, change in (("cost", cost_change), ("time", latency_change)):
         if change is not None and abs(change) >= 1:
             headline += f"; {label} {'+' if change > 0 else ''}{change:.0f}%"

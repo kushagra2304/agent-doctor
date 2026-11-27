@@ -1,8 +1,13 @@
-"""A real tool-calling support agent on an open model (Hugging Face Inference Providers).
+"""A real tool-calling support agent on an open model.
 
 Unlike the bad agent, nothing is planted: the model decides which tools to call, in what
 order and how often. Whatever waste Agent Doctor finds here is the model's own behaviour.
 The tools are backed by small in-memory tables so the only external service is the LLM.
+
+The model runs on Hugging Face Inference Providers by default, or on any OpenAI-compatible
+server, such as a free local Ollama:
+
+    AD_BASE_URL=http://localhost:11434/v1  AD_MODEL=qwen2.5:3b
 """
 
 from __future__ import annotations
@@ -13,7 +18,8 @@ from typing import Any
 
 from agent_doctor import instrument, trace_run, trace_tool
 
-MODEL = os.environ.get("AD_MODEL", "Qwen/Qwen2.5-72B-Instruct")
+BASE_URL = os.environ.get("AD_BASE_URL")  # an OpenAI-compatible server, e.g. local Ollama
+MODEL = os.environ.get("AD_MODEL", "qwen2.5:3b" if BASE_URL else "Qwen/Qwen2.5-72B-Instruct")
 MAX_STEPS = 8
 
 SYSTEM_PROMPT = """You are ShopBot, the customer support assistant for an online store in India.
@@ -23,6 +29,21 @@ Answer the customer's question using the tools. Rules:
 - When you have the answer, call send_reply exactly once with the final message for the
   customer, then reply with that same message.
 - Keep replies to two or three friendly sentences."""
+
+# v2 fixes what the v1 runs got wrong on qwen2.5:3b: it skipped get_tracking and gave no
+# delivery date, answered a shipping question from memory, dropped the return policy it had
+# just fetched, left half of a two-part question unanswered, and rarely called send_reply.
+SYSTEM_PROMPT_V2 = """You are ShopBot, the customer support assistant for an online store in India.
+Answer the customer's question using the tools. Rules:
+- Look every fact up with a tool; never answer from memory.
+  - Order status: search_orders. Delivery date: ALSO call get_tracking for that order.
+  - Any policy (returns, refunds, shipping times, warranty): search_kb.
+  - Stock: check_inventory, and say how many units are in stock.
+- If a tool fails, say that the information is temporarily unavailable.
+- Answer every part of the question, and include the specific facts the tools gave you
+  (days, dates, numbers). Never tell the customer to contact support for information you have.
+- Finish by calling send_reply exactly once with the final message, then reply with that
+  same message. Keep it to two or three friendly sentences."""
 
 ORDERS = {
     "1234": {"status": "shipped", "carrier": "BlueDart", "items": ["running shoes"]},
@@ -34,6 +55,11 @@ KB = {
     "refund": "Unused items can be returned within 30 days of delivery for a full refund.",
     "shipping": "Standard shipping takes 3-5 business days; express takes 1-2.",
     "warranty": "Electronics carry a 1-year manufacturer warranty.",
+}
+KB_WORDS = {  # what a customer or model might search for, per article
+    "refund": {"refund", "return", "exchange", "money back"},
+    "shipping": {"shipping", "ship", "delivery", "deliver", "express", "standard", "dispatch"},
+    "warranty": {"warranty", "guarantee", "repair", "defect"},
 }
 INVENTORY = {"SKU-RED-42": 12, "SKU-BLU-40": 0, "SKU-GRN-38": 3}
 
@@ -57,7 +83,7 @@ def get_tracking(order_id: str) -> dict:
 @trace_tool
 def search_kb(query: str) -> dict:
     q = query.lower()
-    hits = [{"topic": k, "text": v} for k, v in KB.items() if k in q or any(w in q for w in k.split())]
+    hits = [{"topic": k, "text": KB[k]} for k, words in KB_WORDS.items() if any(w in q for w in words)]
     return {"query": query, "results": hits or [{"topic": "none", "text": "No matching article."}]}
 
 
@@ -101,6 +127,8 @@ def _get(obj: Any, key: str) -> Any:
 def _client():
     from huggingface_hub import InferenceClient
 
+    if BASE_URL:  # the model is named in each request, so the client only needs the server
+        return instrument(InferenceClient(base_url=BASE_URL), agent="shop-assistant", provider="local")
     return instrument(InferenceClient(model=MODEL), agent="shop-assistant")
 
 
@@ -116,15 +144,25 @@ def client():
 
 @trace_run(agent="shop-assistant", prompt_version="v1")
 def handle(question: str, customer_id: str = "C-101") -> str:
-    """Answer one customer question with a model-driven tool loop."""
+    """Answer one customer question with a model-driven tool loop (the v1 prompt)."""
+    return _answer(SYSTEM_PROMPT, question, customer_id)
+
+
+@trace_run(agent="shop-assistant", prompt_version="v2")
+def handle_v2(question: str, customer_id: str = "C-101") -> str:
+    """The same loop with the v2 prompt."""
+    return _answer(SYSTEM_PROMPT_V2, question, customer_id)
+
+
+def _answer(system: str, question: str, customer_id: str) -> str:
     messages: list[dict[str, Any]] = [
-        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "system", "content": system},
         {"role": "user", "content": f"Customer {customer_id} asks: {question}"},
     ]
     answer = ""
     for _ in range(MAX_STEPS):
-        resp = client().chat_completion(messages=messages, tools=TOOL_SCHEMAS, tool_choice="auto",
-                                        max_tokens=400, temperature=0)
+        resp = client().chat_completion(messages=messages, model=MODEL, tools=TOOL_SCHEMAS,
+                                        tool_choice="auto", max_tokens=400, temperature=0)
         msg = _get(resp.choices[0], "message")
         calls = _get(msg, "tool_calls") or []
         answer = _get(msg, "content") or answer
