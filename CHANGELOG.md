@@ -1,21 +1,5 @@
 # Changelog
 
-## Unreleased
-
-Found by running Agent Doctor on a real tool-calling agent (`examples/real_agent/`, qwen2.5
-on a local Ollama):
-
-- Eval comparisons now say what each scorer fixed and broke. Before, one scorer that failed
-  every case kept the overall verdict at "same" and hid a drop in the others.
-  `ScorerComparison` has new `improved` and `regressed` case lists.
-- Replayed and evaluated runs keep the agent's `@trace_run` labels (`prompt_version`,
-  `agent_version`, tags). They used to be dropped.
-- "Swallowed tool failure" no longer fires when the answer tells the user the data is
-  unavailable or timed out. When the tool worked for other inputs, the title names the
-  failing arguments.
-- New example: `examples/real_agent/`, with a recording script, an eval suite comparing two
-  prompts and two models, and a write-up of what it found.
-
 ## 0.5.0
 
 First public release, on PyPI as `agent-doctor-cli` (PyPI treats `agentdoctor` as the same name
@@ -35,6 +19,19 @@ The command is still `agent-doctor` and the import is still `agent_doctor`.
   lists or shows them.
 - **MCP**: new `recommend_fixes`, `search_playbooks`, `list_evals` and `get_eval` tools.
 - **Hugging Face Space** demo in `space/`.
+
+Fixes found by running it on a real tool-calling agent (`examples/real_agent/`):
+
+- Eval comparisons now say what each scorer fixed and broke. Before, one scorer that failed
+  every case kept the overall verdict at "same" and hid a drop in the others.
+  `ScorerComparison` has new `improved` and `regressed` case lists.
+- Replayed and evaluated runs keep the agent's `@trace_run` labels (`prompt_version`,
+  `agent_version`, tags). They used to be dropped.
+- "Swallowed tool failure" no longer fires when the answer tells the user the data is
+  unavailable or timed out. When the tool worked for other inputs, the title names the
+  failing arguments.
+- New example: `examples/real_agent/`, with a recording script, an eval suite comparing two
+  prompts and two models, and a write-up of what it found.
 
 ## 0.4.0
 
