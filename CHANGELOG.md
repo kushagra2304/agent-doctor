@@ -2,7 +2,8 @@
 
 ## 0.5.0
 
-First public release.
+First public release, on PyPI as `agentdoctor` (the name `agent-doctor` was already taken).
+The command is still `agent-doctor` and the import is still `agent_doctor`.
 
 - **Recommender**: `agent-doctor recommend [RUN]` turns findings into a ranked fix plan from a
   library of 15 playbooks (why, fix with code, how to verify). Retrieval is deterministic

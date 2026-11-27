@@ -10,6 +10,17 @@ or model against saved runs before you deploy.
 
 > Status: **0.5.0, ready for a first release**. Recording, cost, problem detection, fix plans, the MCP server, replay, evaluation and importers from other tracing tools all work.
 
+## Install
+
+```bash
+pip install agentdoctor               # the package is "agentdoctor"; the command is agent-doctor
+pip install "agentdoctor[mcp]"        # plus the MCP server for Claude, Cursor and other clients
+pip install "agentdoctor[mcp,hf]"     # plus Hugging Face InferenceClient support
+```
+
+In Python, import it as `agent_doctor`. Try it in the browser first: the
+[Hugging Face Space](space/README.md) runs the demo with no install.
+
 ## Quick start (development)
 
 Windows (PowerShell). Needs Python 3.10 or newer; check with `python --version`.
@@ -142,7 +153,7 @@ Add your own patterns with `agent_doctor.ingest.Redactor(extra=[("ORDER", r"ORD-
 ## Ask Claude or Cursor about your runs (MCP)
 
 ```bash
-pip install "agent-doctor[mcp]"
+pip install "agentdoctor[mcp]"
 claude mcp add agent-doctor -- agent-doctor mcp      # Claude Code
 ```
 

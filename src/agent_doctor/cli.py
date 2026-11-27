@@ -699,7 +699,7 @@ def mcp(prices_file: Path | None = PricesOpt) -> None:
         from agent_doctor.mcp_server import create_server
     except ImportError:
         err.print("[red]error:[/red] the MCP server needs the 'mcp' extra: "
-                  'pip install "agent-doctor\\[mcp]"')
+                  'pip install "agentdoctor\\[mcp]"')
         raise typer.Exit(1) from None
     if prices_file is not None:
         _prices(prices_file)  # fail now with a clear message, not on the first tool call
